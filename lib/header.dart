@@ -1,13 +1,10 @@
-// lib/header.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-// Auth & profile
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-// Theme helpers (provides context.brand, etc.)
 import 'package:nice_rice/theme_controller.dart';
 
 class PageHeader extends StatefulWidget implements PreferredSizeWidget {
@@ -23,7 +20,6 @@ class PageHeader extends StatefulWidget implements PreferredSizeWidget {
   final double logoScale;
   final EdgeInsets logoPadding;
   final double profileIconSize;
-
   final bool isDarkMode;
   final ValueChanged<bool>? onThemeChanged;
 
@@ -41,12 +37,12 @@ class _PageHeaderState extends State<PageHeader> {
 
   User? get _user => FirebaseAuth.instance.currentUser;
 
-  // ---------- Profile name helpers ----------
   Future<String?> _fetchFirstName() async {
     final u = _user;
     if (u == null) return null;
     try {
-      final doc = await FirebaseFirestore.instance.collection('users').doc(u.uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users').doc(u.uid).get();
       final data = doc.data();
       final first = (data?['firstName'] as String?)?.trim();
       if (first != null && first.isNotEmpty) return first;
@@ -58,7 +54,6 @@ class _PageHeaderState extends State<PageHeader> {
     return null;
   }
 
-  // ---------- Popup open/close ----------
   void _toggleProfilePopup() {
     if (_profilePopup == null) {
       _openProfilePopup();
@@ -75,57 +70,47 @@ class _PageHeaderState extends State<PageHeader> {
   void _openProfilePopup() {
     if (_profilePopup != null) return;
 
-    final overlay = Overlay.of(context);
+    final overlay = Overlay.of(context, rootOverlay: true)!;
     final mq = MediaQuery.of(context);
     final Size screen = mq.size;
-    final EdgeInsets viewPadding = mq.viewPadding; // safe areas
+    final EdgeInsets viewPadding = mq.viewPadding;
 
-    // Measure the avatar's global rect
     final RenderBox rb =
         _profileTargetKey.currentContext!.findRenderObject() as RenderBox;
     final Offset anchorTopLeft = rb.localToGlobal(Offset.zero);
     final Size anchorSize = rb.size;
     final double anchorRight = anchorTopLeft.dx + anchorSize.width;
 
-    // Desired panel size (adaptive to device width)
     const double minW = 240.0, maxW = 320.0;
-    final double sideGutter = 12.0 + viewPadding.right; // keep off the edges
+    final double sideGutter = 12.0 + viewPadding.right;
     final double wantedW = (screen.width - sideGutter * 2).clamp(minW, maxW);
     final double maxH = screen.height * 0.80;
     const double vGap = 8.0;
 
-    // Preferred spot: right-aligned to avatar, below it
     double left = anchorRight - wantedW;
     double top = anchorTopLeft.dy + anchorSize.height + vGap;
 
-    // Clamp horizontally to viewport
     left = left.clamp(sideGutter, screen.width - sideGutter - wantedW);
 
-    // If not enough room below, flip above
     final double safeBottom = screen.height - viewPadding.bottom - 12.0;
     final double safeTop = viewPadding.top + 12.0;
     final double spaceBelow = safeBottom - top;
     final bool willFlipUp = spaceBelow < 220.0;
 
-    // Build overlay
     _profilePopup = OverlayEntry(
       builder: (_) {
-        // Choose maxHeight based on placement (below vs above)
         final double availableHeight = willFlipUp
             ? (top - vGap - safeTop).clamp(160.0, maxH)
             : (safeBottom - top).clamp(160.0, maxH);
 
         return Stack(
           children: [
-            // Tap outside to dismiss
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: _toggleProfilePopup,
               ),
             ),
-
-            // Panel — clamped and optionally flipped above anchor
             Positioned(
               left: left,
               top: willFlipUp ? null : top,
@@ -165,7 +150,6 @@ class _PageHeaderState extends State<PageHeader> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final cs = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
     final width = MediaQuery.of(context).size.width;
@@ -290,8 +274,8 @@ class _ProfilePanelState extends State<_ProfilePanel> {
     final u = _user;
     if (u == null) return "Hello, Farmer!";
     try {
-      final doc =
-          await FirebaseFirestore.instance.collection('users').doc(u.uid).get();
+      final doc = await FirebaseFirestore.instance
+          .collection('users').doc(u.uid).get();
       final data = doc.data();
       final first = (data?['firstName'] as String?)?.trim();
       if (first != null && first.isNotEmpty) return "Hello, $first!";
@@ -306,14 +290,22 @@ class _ProfilePanelState extends State<_ProfilePanel> {
   }
 
   void _goLogin() {
-    Navigator.of(context).pushReplacementNamed('/login');
     widget.onClose();
+    Navigator.of(context, rootNavigator: true)
+        .pushReplacementNamed('/login');
+  }
+
+  void _goRegister() {
+    widget.onClose();
+    Navigator.of(context, rootNavigator: true)
+        .pushReplacementNamed('/signup');
   }
 
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     if (mounted) {
-      Navigator.of(context).pushNamedAndRemoveUntil('/landing', (r) => false);
+      Navigator.of(context, rootNavigator: true)
+          .pushNamedAndRemoveUntil('/landing', (r) => false);
     }
   }
 
@@ -345,7 +337,6 @@ class _ProfilePanelState extends State<_ProfilePanel> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Header row: avatar + name + close
                 Row(
                   children: [
                     GestureDetector(
@@ -409,8 +400,7 @@ class _ProfilePanelState extends State<_ProfilePanel> {
                       "Edit name",
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
+                      style: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
                     ),
                     onTap: _editName,
                   ),
@@ -423,8 +413,7 @@ class _ProfilePanelState extends State<_ProfilePanel> {
                       "Edit photo",
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
+                      style: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
                     ),
                     onTap: _editPhoto,
                   ),
@@ -440,10 +429,9 @@ class _ProfilePanelState extends State<_ProfilePanel> {
                       "Register here",
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
+                      style: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
                     ),
-                    onTap: _goLogin,
+                    onTap: _goRegister,
                   ),
                   ListTile(
                     dense: true,
@@ -454,8 +442,7 @@ class _ProfilePanelState extends State<_ProfilePanel> {
                       "Sign in for free",
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
+                      style: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
                     ),
                     onTap: _goLogin,
                   ),
@@ -490,8 +477,7 @@ class _ProfilePanelState extends State<_ProfilePanel> {
                       "Log out",
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style:
-                          GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
+                      style: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
                     ),
                     onTap: _logout,
                   ),

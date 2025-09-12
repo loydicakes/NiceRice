@@ -5,6 +5,8 @@ import 'dart:math' as math show pi;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:flutter/services.dart';
+
 
 import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart'; // ThemeScope + context.brand
@@ -23,9 +25,10 @@ class AutomationPage extends StatefulWidget {
 
 class _AutomationPageState extends State<AutomationPage>
     with AutomaticKeepAliveClientMixin {
+    static final MethodChannel _bleChannel = MethodChannel('app.bluetooth/controls');
+
   @override
   bool get wantKeepAlive => true;
-
   // ---------------------- Stopwatch / State ----------------------
   Timer? _ticker;                    // 1s heartbeat
   Duration _elapsed = Duration.zero; // UI stopwatch
@@ -198,6 +201,16 @@ class _AutomationPageState extends State<AutomationPage>
       ),
     );
   }
+  Future<void> _sendCommand(String command) async {
+      try {
+        final ok = await _bleChannel.invokeMethod<bool>('sendData', {'data': command}) ?? false;
+        if (!ok) {
+          Fluttertoast.showToast(msg: "Failed to send: $command");
+        }
+      } catch (e) {
+        Fluttertoast.showToast(msg: "Bluetooth error: $e");
+      }
+    }
 
   // ---------------------- Controls ----------------------
   void _startStopwatch() {
@@ -225,6 +238,9 @@ class _AutomationPageState extends State<AutomationPage>
     // Start operation log
     _currentOpId = OperationHistory.instance.startOperation();
     OperationHistory.instance.logReading(_currentOpId!, _moisture);
+
+    _sendCommand("ON1");
+    _sendCommand("ON2");
   }
 
   void _pauseStopwatch() {
@@ -265,6 +281,9 @@ class _AutomationPageState extends State<AutomationPage>
       OperationHistory.instance.logReading(_currentOpId!, _moisture);
       OperationHistory.instance.endOperation(_currentOpId!);
       _currentOpId = null;
+      _sendCommand("OFF1");
+      _sendCommand("OFF2");
+
     }
   }
 
@@ -523,20 +542,20 @@ class _AutomationPageState extends State<AutomationPage>
 
   // ------- Controls Row -------
   Widget _controlsRow(
-    ButtonStyle startStyle,
-    ButtonStyle pauseResumeStyle,
-    ButtonStyle stopStyle,
-    TextStyle Function(double, {FontWeight? w, Color? c}) t,
-  ) {
+      ButtonStyle startStyle,
+      ButtonStyle pauseResumeStyle,
+      ButtonStyle stopStyle,
+      TextStyle Function(double, {FontWeight? w, Color? c}) t,
+      ) {
     Widget label(String text) => FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            text,
-            maxLines: 1,
-            softWrap: false,
-            style: t(14, w: FontWeight.w700, c: Colors.white),
-          ),
-        );
+      fit: BoxFit.scaleDown,
+      child: Text(
+        text,
+        maxLines: 1,
+        softWrap: false,
+        style: t(14, w: FontWeight.w700, c: Colors.white),
+      ),
+    );
 
     return Row(
       children: [
@@ -640,11 +659,11 @@ class _MetricBox extends StatelessWidget {
   final Color border;
   final IconData icon;
   final TextStyle Function({
-    double? size,
-    FontWeight? weight,
-    Color color,
-    double? height,
-    TextDecoration? deco,
+  double? size,
+  FontWeight? weight,
+  Color color,
+  double? height,
+  TextDecoration? deco,
   }) textBuilder;
 
   const _MetricBox({
@@ -750,9 +769,9 @@ class _TargetRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TargetRingPainter old) =>
       old.progress != progress ||
-      old.track != track ||
-      old.stroke != stroke ||
-      old.color != color;
+          old.track != track ||
+          old.stroke != stroke ||
+          old.color != color;
 }
 
 // Simple container for moisture history

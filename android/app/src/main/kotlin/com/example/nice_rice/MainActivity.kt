@@ -40,10 +40,13 @@ class MainActivity : FlutterActivity() {
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
+
+                    // 1. Ensure BT is on
                     "ensureBluetoothOn" -> {
                         result.success(btAdapter.isEnabled)
                     }
 
+                    // 2. List paired devices
                     "listBondedDevices" -> {
                         try {
                             val out = btAdapter.bondedDevices.map {
@@ -55,10 +58,12 @@ class MainActivity : FlutterActivity() {
                         }
                     }
 
+                    // 3. Discover BLE + Classic
                     "discoverDevices" -> {
                         discoverAllOnce(result)
                     }
 
+                    // 4. Connect to device
                     "connect" -> {
                         val address = call.argument<String>("address")
                         val type = call.argument<String>("type") ?: "ble"
@@ -69,6 +74,23 @@ class MainActivity : FlutterActivity() {
                         when (type.lowercase(Locale.ROOT)) {
                             "spp" -> connectSpp(address, timeoutMs, result)
                             else  -> connectBle(address, timeoutMs, result)
+                        }
+                    }
+
+                    // ✅ 5. Send data to ESP32 via SPP
+                    "sendData" -> {
+                        val data = call.argument<String>("data") ?: ""
+                        val socket = sppSocket
+                        if (socket == null || !socket.isConnected) {
+                            result.error("no_connection", "SPP socket not connected", null)
+                            return@setMethodCallHandler
+                        }
+
+                        try {
+                            socket.outputStream.write((data + "\n").toByteArray())
+                            result.success(true)
+                        } catch (e: IOException) {
+                            result.error("send_failed", "Failed to send data", e.message)
                         }
                     }
 
@@ -165,7 +187,7 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ---- BLE GATT connect (kept for other devices) --------------------------
+    // ---- BLE GATT connect (for completeness) --------------------------
     @SuppressLint("MissingPermission")
     private fun connectBle(address: String, timeoutMs: Int, result: MethodChannel.Result) {
         val device = btAdapter.getRemoteDevice(address)
@@ -213,9 +235,6 @@ class MainActivity : FlutterActivity() {
                 btAdapter.cancelDiscovery()
                 sock.connect() // blocks; success => RFCOMM up
                 sppSocket = sock
-
-                // Optional: if your ESP32 expects a command after connect:
-                // sock.outputStream.write("ON\n".toByteArray())
 
                 runOnUiThread { result.success(true) }
             } catch (e: IOException) {

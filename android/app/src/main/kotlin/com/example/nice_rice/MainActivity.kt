@@ -20,10 +20,12 @@ import kotlin.concurrent.thread
 class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "app.bluetooth/controls"
-
+    private lateinit var methodChannel: MethodChannel
     private lateinit var btAdapter: BluetoothAdapter
     private var gatt: BluetoothGatt? = null
     private var sppSocket: BluetoothSocket? = null
+
+
 
     private val SPP_UUID: UUID =
         UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
@@ -34,69 +36,76 @@ class MainActivity : FlutterActivity() {
         val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         btAdapter = manager.adapter
 
+        // ✅ Assign the method channel properly here
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+
         // Ask runtime permissions once (simple example)
         requestBtPermissionsIfNeeded()
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-
-                    // 1. Ensure BT is on
-                    "ensureBluetoothOn" -> {
-                        result.success(btAdapter.isEnabled)
-                    }
-
-                    // 2. List paired devices
-                    "listBondedDevices" -> {
-                        try {
-                            val out = btAdapter.bondedDevices.map {
-                                mapOf("name" to (it.name ?: ""), "address" to it.address)
-                            }
-                            result.success(out)
-                        } catch (e: SecurityException) {
-                            result.error("perm", "Missing BLUETOOTH_CONNECT", e.message)
-                        }
-                    }
-
-                    // 3. Discover BLE + Classic
-                    "discoverDevices" -> {
-                        discoverAllOnce(result)
-                    }
-
-                    // 4. Connect to device
-                    "connect" -> {
-                        val address = call.argument<String>("address")
-                        val type = call.argument<String>("type") ?: "ble"
-                        val timeoutMs = call.argument<Int>("timeoutMs") ?: 15000
-                        if (address.isNullOrBlank()) {
-                            result.error("bad_args", "Missing 'address'", null); return@setMethodCallHandler
-                        }
-                        when (type.lowercase(Locale.ROOT)) {
-                            "spp" -> connectSpp(address, timeoutMs, result)
-                            else  -> connectBle(address, timeoutMs, result)
-                        }
-                    }
-
-                    // ✅ 5. Send data to ESP32 via SPP
-                    "sendData" -> {
-                        val data = call.argument<String>("data") ?: ""
-                        val socket = sppSocket
-                        if (socket == null || !socket.isConnected) {
-                            result.error("no_connection", "SPP socket not connected", null)
-                            return@setMethodCallHandler
-                        }
-
-                        try {
-                            socket.outputStream.write((data + "\n").toByteArray())
-                            result.success(true)
-                        } catch (e: IOException) {
-                            result.error("send_failed", "Failed to send data", e.message)
-                        }
-                    }
-
-                    else -> result.notImplemented()
+        // ✅ Now set the handler on the initialized methodChannel
+        methodChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "ensureBluetoothOn" -> {
+                    result.success(btAdapter.isEnabled)
                 }
+
+                "listBondedDevices" -> {
+                    try {
+                        val out = btAdapter.bondedDevices.map {
+                            mapOf("name" to (it.name ?: ""), "address" to it.address)
+                        }
+                        result.success(out)
+                    } catch (e: SecurityException) {
+                        result.error("perm", "Missing BLUETOOTH_CONNECT", e.message)
+                    }
+                }
+
+                "discoverDevices" -> {
+                    discoverAllOnce(result)
+                }
+
+                "connect" -> {
+                    val address = call.argument<String>("address")
+                    val type = call.argument<String>("type") ?: "ble"
+                    val timeoutMs = call.argument<Int>("timeoutMs") ?: 15000
+                    if (address.isNullOrBlank()) {
+                        result.error("bad_args", "Missing 'address'", null); return@setMethodCallHandler
+                    }
+                    when (type.lowercase(Locale.ROOT)) {
+                        "spp" -> connectSpp(address, timeoutMs, result)
+                        else  -> connectBle(address, timeoutMs, result)
+                    }
+                }
+
+                "sendData" -> {
+                    val data = call.argument<String>("data")
+                    thread {
+                        try {
+                            val stream = sppSocket?.outputStream
+                            val input = sppSocket?.inputStream
+                            if (stream != null && data != null) {
+                                stream.write((data + "\n").toByteArray())
+                                stream.flush()
+
+                                val buffer = ByteArray(128)
+                                val len = input?.read(buffer) ?: -1
+                                val reply = buffer.copyOf(len).toString(Charsets.UTF_8).trim()
+
+                                runOnUiThread { result.success(reply) }
+                            } else {
+                                runOnUiThread { result.success(null) }
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                result.error("send_fail", "Failed to send or receive", e.message)
+                            }
+                        }
+                    }
+                }
+
+                else -> result.notImplemented()
             }
+        }
     }
 
     private fun requestBtPermissionsIfNeeded() {
@@ -235,6 +244,27 @@ class MainActivity : FlutterActivity() {
                 btAdapter.cancelDiscovery()
                 sock.connect() // blocks; success => RFCOMM up
                 sppSocket = sock
+
+                // 🔁 Start listening for incoming data (e.g., MOISTURE:xxxx)
+                thread {
+                    val input = sock.inputStream
+                    val reader = input.bufferedReader()
+
+                    try {
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            val clean = line.trim()
+                            if (clean.isNotEmpty()) {
+                                runOnUiThread {
+                                    methodChannel.invokeMethod("onDataReceived", clean)
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Connection lost or read error
+                    }
+                }
+
 
                 runOnUiThread { result.success(true) }
             } catch (e: IOException) {

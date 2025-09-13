@@ -44,6 +44,8 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   void initState() {
     super.initState();
 
+    // Register Bluetooth data handler
+    _bleChannel.setMethodCallHandler(_handleBluetoothData);
     for (int i = 0; i < 6; i++) {
       final m = 13 + _rand.nextInt(6).toDouble();
       _moistureHistory.add(m);
@@ -51,16 +53,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      setState(() {
-        _tempC = 55 + _rand.nextDouble() * 10;
-        _humidity = 30 + _rand.nextDouble() * 15;
-        _moisture = 13 + _rand.nextInt(6).toDouble();
-        _moistureHistory.add(_moisture);
-        if (_moistureHistory.length > _historyCap) {
-          _moistureHistory.removeAt(0);
-        }
-      });
+      _sendCommand("GET_DHT");
+
+      _moisture = 13 + _rand.nextInt(6).toDouble();
     });
+
 
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -128,6 +125,63 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       );
 
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25).toDouble();
+
+  Future<void> _sendCommand(String command) async {
+    try {
+      final response = await _bleChannel.invokeMethod<String>('sendData', {'data': command});
+      if (response != null) {
+        print("📨 Got response: $response");
+        _parseDhtResponse(response);
+      } else {
+        print("⚠️ No response from ESP32");
+      }
+    } catch (e) {
+      print("❌ Bluetooth error: $e");
+    }
+  }
+
+  Future<void> _handleBluetoothData(MethodCall call) async {
+    if (call.method == "onDataReceived") {
+      final String data = call.arguments.toString().trim();
+      print("📩 Native pushed: $data");
+      _parseDhtResponse(data);
+    }
+  }
+  void _parseDhtResponse(String rawData) {
+    final lines = rawData.split(RegExp(r'[\r\n]+'));
+    for (final line in lines) {
+      final data = line.trim();
+      if (data.isEmpty) continue;
+
+      print("📨 Processing line: $data");
+
+      if (data.startsWith("DHT:")) {
+        final payload = data.replaceFirst("DHT:", "");
+        final parts = payload.split(',');
+        double? h, t;
+
+        for (final part in parts) {
+          final kv = part.split('=');
+          if (kv.length == 2) {
+            final key = kv[0].trim();
+            final val = double.tryParse(kv[1].trim());
+            if (key == 'H') h = val;
+            if (key == 'T') t = val;
+          }
+        }
+
+        if (h != null && t != null) {
+          setState(() {
+            _humidity = h!;
+            _tempC = t!;
+          });
+          print("🟢 Updated HomePage → H: $_humidity%, T: $_tempC°C");
+        } else {
+          print("⚠️ Could not parse H/T");
+        }
+      }
+    }
+  }
 
   // ─── Connect + device picker (Android only) ────────────────────────────────
   Future<void> _onConnectPressed() async {

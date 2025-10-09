@@ -9,9 +9,10 @@ import 'firebase_options.dart';
 import 'pages/landingpage/landing_page.dart';
 import 'pages/login/login.dart';
 import 'pages/landingpage/splash_screen.dart';
-import 'tab.dart';     // AppShell
-import 'header.dart';
 import 'pages/homepage/home_page.dart';
+import 'pages/signup/signup.dart';
+
+import 'tab.dart'; // AppShell (parent Scaffold that owns the header)
 
 // Theme controller
 import 'theme_controller.dart';
@@ -20,21 +21,11 @@ final ThemeController _theme = ThemeController();
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
-  // ✅ Initialize Firebase BEFORE runApp so SplashScreen can use it safely.
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
-  runApp(
-    ThemeScope(
-      controller: _theme,
-      child: const BootstrapApp(),
-    ),
-  );
+  runApp(ThemeScope(controller: _theme, child: const BootstrapApp()));
 }
 
-/// Single app entry that owns MaterialApp + theming.
 class BootstrapApp extends StatelessWidget {
   const BootstrapApp({super.key});
 
@@ -49,38 +40,24 @@ class BootstrapApp extends StatelessWidget {
           theme: AppThemes.light(),
           darkTheme: AppThemes.dark(),
           themeMode: theme.mode,
-          // ✅ SplashScreen is now the first screen again.
+
+          // Start at Splash (does guarded auth routing)
           home: const SplashScreen(),
+
+          // Centralized routes
           routes: {
             '/landing': (_) => const LandingPage(),
-            '/login':   (_) => const LoginPage(),
+            '/login': (_) => const LoginPage(),
+            '/signup': (_) => const SignUpPage(),
             '/main': (ctx) {
               final int? initial =
                   ModalRoute.of(ctx)?.settings.arguments as int?;
               return AppShell(initialIndex: initial ?? 0);
             },
-            '/home': (_) => const HomePage(),
+            '/home': (_) => const HomePage(), // if you still deep-link to it
           },
         );
       },
-    );
-  }
-}
-
-/// Optional scaffold that always includes the header.
-/// Ensure AppShell doesn’t add its own AppBar to avoid duplicates.
-class AppWithHeader extends StatelessWidget {
-  const AppWithHeader({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = ThemeScope.of(context);
-    return Scaffold(
-      appBar: PageHeader(
-        isDarkMode: theme.isDark,
-        onThemeChanged: theme.setDark,
-      ),
-      body: const AppShell(),
     );
   }
 }

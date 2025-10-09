@@ -14,6 +14,7 @@
     <!-- If you plan to advertise later:
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- ===== Legacy (SDK <= 30) BLE + location permissions ===== -->
     <uses-permission

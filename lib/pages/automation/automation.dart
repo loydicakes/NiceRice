@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:flutter/services.dart';
+import 'package:nice_rice/data/operation_persistence.dart';
 
 
 import 'package:nice_rice/header.dart';
@@ -73,13 +74,17 @@ class _AutomationPageState extends State<AutomationPage>
 
     if (_currentOpId != null) {
       OperationHistory.instance.logReading(_currentOpId!, _moisture);
-      OperationHistory.instance.endOperation(_currentOpId!);
+      final op = OperationHistory.instance.endOperation(_currentOpId!);
+      if (op != null) {
+        OperationPersistence.save(op); // 🔥 Save automatically
+      }
       _currentOpId = null;
     }
     super.dispose();
   }
 
-  // ---------------------- Helpers ----------------------
+
+    // ---------------------- Helpers ----------------------
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25);
 
   String _fmtTime(Duration d) {
@@ -303,7 +308,8 @@ class _AutomationPageState extends State<AutomationPage>
     });
   }
 
-  void _stopStopwatch() {
+// automation.dart
+  Future<void> _stopStopwatch() async {          // <-- async
     _ticker?.cancel();
     setState(() {
       _elapsed = Duration.zero;
@@ -312,10 +318,18 @@ class _AutomationPageState extends State<AutomationPage>
     });
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
-
     if (_currentOpId != null) {
       OperationHistory.instance.logReading(_currentOpId!, _moisture);
-      OperationHistory.instance.endOperation(_currentOpId!);
+
+      final op = OperationHistory.instance.endOperation(_currentOpId!);
+      if (op != null) {
+        try {
+          await OperationPersistence.save(op);  // <-- await
+          debugPrint('SAVE: success ${op.id}');
+        } catch (e, st) {
+          debugPrint('SAVE: failed $e\n$st');   // <-- see actual error
+        }
+      }
       _currentOpId = null;
 
       _sendCommand("OFF1");
@@ -323,7 +337,6 @@ class _AutomationPageState extends State<AutomationPage>
       _sendCommand("OFF3");
       _sendCommand("OFF4");
     }
-
   }
 
   // ---------------------- Build ----------------------

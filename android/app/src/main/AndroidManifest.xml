@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- ===== BLE capability (allow install even if device has no BLE) ===== -->
+    <!-- ===== Device capability ===== -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="false" />
 
     <!-- ===== Android 12+ (SDK 31+) Bluetooth runtime permissions ===== -->
-    <!-- If you don't use location from scans, keep neverForLocation -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- If you plan to advertise later, also add:
+    <!-- If you plan to advertise later:
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
     -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- ===== Legacy (SDK <= 30) BLE + location permissions ===== -->
     <uses-permission
@@ -42,7 +42,6 @@
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize">
 
-            <!-- Theme visible while Flutter initializes -->
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/NormalTheme" />
@@ -53,13 +52,12 @@
             </intent-filter>
         </activity>
 
-        <!-- Used by Flutter to generate plugin registrant -->
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
 
-    <!-- Package visibility for text processing used by Flutter -->
+    <!-- Package visibility (kept) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />

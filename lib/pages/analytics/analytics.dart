@@ -13,6 +13,14 @@ class MoistureReading {
   final DateTime t;
   final double value;
   const MoistureReading(this.t, this.value);
+
+  Map<String, dynamic> toMap() => {
+    't': t.toIso8601String(),
+    'value': value,
+  };
+
+  factory MoistureReading.fromMap(Map<String, dynamic> m) =>
+      MoistureReading(DateTime.parse(m['t']), (m['value'] as num).toDouble());
 }
 
 class OperationRecord {
@@ -30,6 +38,7 @@ class OperationRecord {
   Duration? get duration =>
       endedAt == null ? null : endedAt!.difference(startedAt);
 
+  /// 🔹 This is your original displayTitle — keep it!
   String get displayTitle {
     final df = DateFormat('MMM d, HH:mm');
     final start = df.format(startedAt);
@@ -38,7 +47,25 @@ class OperationRecord {
         : ' • ${duration!.inMinutes.remainder(60).toString().padLeft(2, '0')}:${duration!.inSeconds.remainder(60).toString().padLeft(2, '0')}';
     return 'Operation $start$dur';
   }
+
+  /// JSON helpers
+  Map<String, dynamic> toMap() => {
+    'id': id,
+    'startedAt': startedAt.toIso8601String(),
+    'endedAt': endedAt?.toIso8601String(),
+    'readings': readings.map((r) => r.toMap()).toList(),
+  };
+
+  factory OperationRecord.fromMap(Map<String, dynamic> m) => OperationRecord(
+    id: m['id'],
+    startedAt: DateTime.parse(m['startedAt']),
+    readings: (m['readings'] as List)
+        .map((e) => MoistureReading.fromMap(e))
+        .toList(),
+  )..endedAt =
+  (m['endedAt'] != null ? DateTime.parse(m['endedAt']) : null);
 }
+
 
 /// ------------ Repository (singleton) ------------
 abstract class OperationRepository {
@@ -64,10 +91,11 @@ class OperationHistory implements OperationRepository {
     op.readings.add(MoistureReading(at ?? DateTime.now(), moisture));
   }
 
-  void endOperation(String opId) {
+  OperationRecord? endOperation(String opId) {
     final op = getById(opId);
-    if (op == null) return;
+    if (op == null) return null;
     op.endedAt ??= DateTime.now();
+    return op; // <-- return the finished record
   }
 
   @override

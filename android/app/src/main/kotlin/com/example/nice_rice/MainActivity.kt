@@ -1,247 +1,277 @@
-package com.example.nice_rice  // <-- must match your applicationId
+package com.example.nice_rice
 
-import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
+import android.annotation.SuppressLint
+import android.bluetooth.*
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanResult
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
-import android.os.Build
-import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
+import android.os.*
 import androidx.core.app.ActivityCompat
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.IOException
+import java.util.*
+import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
 
     private val CHANNEL = "app.bluetooth/controls"
+    private lateinit var methodChannel: MethodChannel
+    private lateinit var btAdapter: BluetoothAdapter
+    private var gatt: BluetoothGatt? = null
+    private var sppSocket: BluetoothSocket? = null
 
-    private var pendingResult: MethodChannel.Result? = null
 
-    // Request codes (compat API)
-    private val REQ_ENABLE_BT = 1001
-    private val REQ_PERMS = 1002
 
-    // Discovery state
-    private var discoveryResult: MethodChannel.Result? = null
-    private var discoveryReceiver: BroadcastReceiver? = null
-    private val discovered = linkedSetOf<BluetoothDevice>()
-    private val handler = Handler(Looper.getMainLooper())
+    private val SPP_UUID: UUID =
+        UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "ensureBluetoothOn" -> { pendingResult = result; ensureBluetoothOn() }
-                    "listBondedDevices" -> listBondedDevices(result)
-                    "discoverDevices" -> startDiscovery(result)   // short classic discovery
-                    else -> result.notImplemented()
+
+        val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+        btAdapter = manager.adapter
+
+        // ✅ Assign the method channel properly here
+        methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
+
+        // Ask runtime permissions once (simple example)
+        requestBtPermissionsIfNeeded()
+
+        // ✅ Now set the handler on the initialized methodChannel
+        methodChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "ensureBluetoothOn" -> {
+                    result.success(btAdapter.isEnabled)
                 }
-            }
-    }
 
-    // ---- Ensure BT ON (same as before) --------------------------------------
-
-    private fun ensureBluetoothOn() {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            pendingResult?.error("no_adapter", "Device has no Bluetooth adapter", null)
-            pendingResult = null
-            return
-        }
-        if (!hasNeededPermissions()) {
-            requestNeededPermissions()
-            return
-        }
-        if (adapter.isEnabled) {
-            pendingResult?.success(true)
-            pendingResult = null
-            return
-        }
-        @Suppress("DEPRECATION")
-        val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
-        @Suppress("DEPRECATION")
-        startActivityForResult(intent, REQ_ENABLE_BT)
-    }
-
-    private fun hasNeededPermissions(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val scan = ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED
-            val connect = ActivityCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-            scan && connect
-        } else {
-            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        }
-    }
-
-    private fun requestNeededPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT),
-                REQ_PERMS
-            )
-        } else {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION),
-                REQ_PERMS
-            )
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == REQ_ENABLE_BT) {
-            val isOn = BluetoothAdapter.getDefaultAdapter()?.isEnabled == true
-            pendingResult?.success(isOn)
-            pendingResult = null
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQ_PERMS) {
-            val allGranted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            val adapter = BluetoothAdapter.getDefaultAdapter()
-            if (!allGranted) {
-                pendingResult?.success(false)
-                pendingResult = null
-                discoveryResult?.success(emptyList<Map<String, String>>())
-                discoveryResult = null
-                return
-            }
-            // Continue pending flow: if BT already on, return true, else prompt enable
-            if (pendingResult != null) {
-                if (adapter?.isEnabled == true) {
-                    pendingResult?.success(true)
-                    pendingResult = null
-                } else {
-                    @Suppress("DEPRECATION")
-                    startActivityForResult(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE), REQ_ENABLE_BT)
+                "listBondedDevices" -> {
+                    try {
+                        val out = btAdapter.bondedDevices.map {
+                            mapOf("name" to (it.name ?: ""), "address" to it.address)
+                        }
+                        result.success(out)
+                    } catch (e: SecurityException) {
+                        result.error("perm", "Missing BLUETOOTH_CONNECT", e.message)
+                    }
                 }
-            }
-            // If discovery was waiting on perms, start now
-            if (discoveryResult != null) startDiscovery(discoveryResult!!)
-        }
-    }
 
-    // ---- Bonded devices -----------------------------------------------------
+                "discoverDevices" -> {
+                    discoverAllOnce(result)
+                }
 
-    private fun listBondedDevices(result: MethodChannel.Result) {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            result.error("no_adapter", "Device has no Bluetooth adapter", null)
-            return
-        }
-        if (!hasNeededPermissions()) {
-            result.success(emptyList<Map<String, String>>())
-            return
-        }
-        val list = adapter.bondedDevices?.map { dev ->
-            mapOf(
-                "name" to (dev.name ?: ""),
-                "address" to (dev.address ?: "")
-            )
-        } ?: emptyList()
-        result.success(list)
-    }
+                "connect" -> {
+                    val address = call.argument<String>("address")
+                    val type = call.argument<String>("type") ?: "ble"
+                    val timeoutMs = call.argument<Int>("timeoutMs") ?: 15000
+                    if (address.isNullOrBlank()) {
+                        result.error("bad_args", "Missing 'address'", null); return@setMethodCallHandler
+                    }
+                    when (type.lowercase(Locale.ROOT)) {
+                        "spp" -> connectSpp(address, timeoutMs, result)
+                        else  -> connectBle(address, timeoutMs, result)
+                    }
+                }
 
-    // ---- Classic discovery (8 seconds) --------------------------------------
+                "sendData" -> {
+                    val data = call.argument<String>("data")
+                    thread {
+                        try {
+                            val stream = sppSocket?.outputStream
+                            val input = sppSocket?.inputStream
+                            if (stream != null && data != null) {
+                                stream.write((data + "\n").toByteArray())
+                                stream.flush()
 
-    private fun startDiscovery(result: MethodChannel.Result) {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            result.error("no_adapter", "Device has no Bluetooth adapter", null)
-            return
-        }
-        if (!hasNeededPermissions()) {
-            // Let onRequestPermissionsResult call us again
-            discoveryResult = result
-            requestNeededPermissions()
-            return
-        }
+                                val buffer = ByteArray(128)
+                                val len = input?.read(buffer) ?: -1
+                                val reply = buffer.copyOf(len).toString(Charsets.UTF_8).trim()
 
-        // Clean previous
-        stopDiscoveryInternal()
-
-        discoveryResult = result
-        discovered.clear()
-
-        // Receiver
-        discoveryReceiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    BluetoothDevice.ACTION_FOUND -> {
-                        val device: BluetoothDevice? =
-                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
-                        if (device != null) {
-                            discovered.add(device)
+                                runOnUiThread { result.success(reply) }
+                            } else {
+                                runOnUiThread { result.success(null) }
+                            }
+                        } catch (e: Exception) {
+                            runOnUiThread {
+                                result.error("send_fail", "Failed to send or receive", e.message)
+                            }
                         }
                     }
-                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
-                        finishDiscovery()
-                    }
                 }
+
+                else -> result.notImplemented()
             }
         }
+    }
 
-        // Register filters
-        val filter = IntentFilter().apply {
+    private fun requestBtPermissionsIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 31) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(
+                    android.Manifest.permission.BLUETOOTH_SCAN,
+                    android.Manifest.permission.BLUETOOTH_CONNECT
+                ),
+                1001
+            )
+        } else {
+            // Pre-Android 12: scanning needs location
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
+                1002
+            )
+        }
+    }
+
+    // ---- Discovery: Classic + BLE (single pass, merged) ---------------------
+    @SuppressLint("MissingPermission")
+    private fun discoverAllOnce(result: MethodChannel.Result) {
+        val out = mutableMapOf<String, MutableMap<String,String>>() // by address
+        val handler = Handler(Looper.getMainLooper())
+
+        // 1) bonded devices
+        try {
+            btAdapter.bondedDevices.forEach { d ->
+                val addr = d.address ?: return@forEach
+                val name = d.name ?: ""
+                out.getOrPut(addr) { mutableMapOf("address" to addr, "name" to "") }["name"] = name
+            }
+        } catch (_: SecurityException) {}
+
+        // 2) classic discovery
+        val classicFilter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
         }
-        registerReceiver(discoveryReceiver, filter)
-
-        // Start discovery
-        adapter.cancelDiscovery()
-        val started = adapter.startDiscovery()
-
-        // safety timeout (8s)
-        handler.postDelayed({ finishDiscovery() }, 8000L)
-
-        if (!started) {
-            finishDiscovery() // will just return whatever we have (probably empty)
+        val classicReceiver = object : BroadcastReceiver() {
+            override fun onReceive(ctx: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    BluetoothDevice.ACTION_FOUND -> {
+                        val dev = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+                        val addr = dev.address ?: return
+                        val name = dev.name ?: ""
+                        val entry = out.getOrPut(addr) { mutableMapOf("address" to addr, "name" to "") }
+                        if (entry["name"].isNullOrEmpty() && name.isNotEmpty()) entry["name"] = name
+                    }
+                }
+            }
         }
-    }
 
-    private fun finishDiscovery() {
-        stopDiscoveryInternal()
-        val list = discovered.map { dev ->
-            mapOf(
-                "name" to (dev.name ?: ""),
-                "address" to (dev.address ?: "")
-            )
+        val bleScanner = btAdapter.bluetoothLeScanner
+        val bleCb = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, r: ScanResult) {
+                val dev = r.device ?: return
+                val addr = dev.address ?: return
+                val name = dev.name ?: r.scanRecord?.deviceName ?: ""
+                val entry = out.getOrPut(addr) { mutableMapOf("address" to addr, "name" to "") }
+                if (entry["name"].isNullOrEmpty() && !name.isNullOrEmpty()) entry["name"] = name
+            }
         }
-        discoveryResult?.success(list)
-        discoveryResult = null
-    }
 
-    private fun stopDiscoveryInternal() {
-        val adapter = BluetoothAdapter.getDefaultAdapter()
         try {
-            adapter?.cancelDiscovery()
-        } catch (_: Exception) {}
-        discoveryReceiver?.let {
-            try { unregisterReceiver(it) } catch (_: Exception) {}
+            registerReceiver(classicReceiver, classicFilter)
+            btAdapter.startDiscovery()
+            try { bleScanner.startScan(bleCb) } catch (_: SecurityException) {}
+
+            handler.postDelayed({
+                try { btAdapter.cancelDiscovery() } catch (_: Exception) {}
+                try { bleScanner.stopScan(bleCb) } catch (_: Exception) {}
+                try { unregisterReceiver(classicReceiver) } catch (_: Exception) {}
+
+                val list = out.values.map { mapOf("name" to (it["name"] ?: ""), "address" to (it["address"] ?: "")) }
+                    .sortedWith(compareBy(
+                        { if ((it["name"] ?: "").isEmpty()) 1 else 0 },
+                        { (it["name"] ?: "zzzz").lowercase(Locale.ROOT) }
+                    ))
+                result.success(list)
+            }, 4000)
+        } catch (e: SecurityException) {
+            try { unregisterReceiver(classicReceiver) } catch (_: Exception) {}
+            result.error("perm", "Missing BLUETOOTH_SCAN/CONNECT permission", e.message)
         }
-        discoveryReceiver = null
-        handler.removeCallbacksAndMessages(null)
     }
 
-    override fun onDestroy() {
-        stopDiscoveryInternal()
-        super.onDestroy()
+    // ---- BLE GATT connect (for completeness) --------------------------
+    @SuppressLint("MissingPermission")
+    private fun connectBle(address: String, timeoutMs: Int, result: MethodChannel.Result) {
+        val device = btAdapter.getRemoteDevice(address)
+        var completed = false
+
+        val cb = object : BluetoothGattCallback() {
+            override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    gatt = g
+                    if (!completed) {
+                        completed = true
+                        result.success(true)
+                    }
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    if (!completed) {
+                        completed = true
+                        result.success(false)
+                    }
+                    g.close()
+                }
+            }
+        }
+
+        try {
+            val g = device.connectGatt(this, false, cb, BluetoothDevice.TRANSPORT_LE)
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!completed) {
+                    completed = true
+                    try { g.disconnect(); g.close() } catch (_: Exception) {}
+                    result.success(false)
+                }
+            }, timeoutMs.toLong())
+        } catch (e: SecurityException) {
+            result.error("perm", "Missing BLUETOOTH_CONNECT permission", e.message)
+        }
+    }
+
+    // ---- Classic SPP connect (for your ESP32 BluetoothSerial) ---------------
+    @SuppressLint("MissingPermission")
+    private fun connectSpp(address: String, timeoutMs: Int, result: MethodChannel.Result) {
+        thread {
+            try {
+                val device = btAdapter.getRemoteDevice(address)
+                val sock = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                btAdapter.cancelDiscovery()
+                sock.connect() // blocks; success => RFCOMM up
+                sppSocket = sock
+
+                // 🔁 Start listening for incoming data (e.g., MOISTURE:xxxx)
+                thread {
+                    val input = sock.inputStream
+                    val reader = input.bufferedReader()
+
+                    try {
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            val clean = line.trim()
+                            if (clean.isNotEmpty()) {
+                                runOnUiThread {
+                                    methodChannel.invokeMethod("onDataReceived", clean)
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Connection lost or read error
+                    }
+                }
+
+
+                runOnUiThread { result.success(true) }
+            } catch (e: IOException) {
+                runOnUiThread { result.success(false) }
+            } catch (e: SecurityException) {
+                runOnUiThread { result.error("perm", "Missing BLUETOOTH_CONNECT permission", e.message) }
+            }
+        }
     }
 }

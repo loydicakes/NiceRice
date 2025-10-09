@@ -5,6 +5,9 @@ import 'dart:math' as math show pi;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:flutter/services.dart';
+import 'package:nice_rice/data/operation_persistence.dart';
+
 
 import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart'; // ThemeScope + context.brand
@@ -23,9 +26,10 @@ class AutomationPage extends StatefulWidget {
 
 class _AutomationPageState extends State<AutomationPage>
     with AutomaticKeepAliveClientMixin {
+    static final MethodChannel _bleChannel = MethodChannel('app.bluetooth/controls');
+
   @override
   bool get wantKeepAlive => true;
-
   // ---------------------- Stopwatch / State ----------------------
   Timer? _ticker;                    // 1s heartbeat
   Duration _elapsed = Duration.zero; // UI stopwatch
@@ -36,8 +40,8 @@ class _AutomationPageState extends State<AutomationPage>
   // ---------------------- Sensors (simulated) ----------------------
   Timer? _sensorTimer;
   final Random _rand = Random();
-  double _moisture = 13.7;    // live MC %
-  double _temperature = 27.0; // live °C
+  double _moisture = 0.0;
+  double _temperature = 27.0;
 
   // ---------------------- Drying target / estimator ----------------------
   static const double _targetMc = 14.0;      // target MC(% wet basis)
@@ -49,29 +53,16 @@ class _AutomationPageState extends State<AutomationPage>
   void initState() {
     super.initState();
 
-    // Simulate sensor updates every 2s (replace with your real stream)
-    _sensorTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    // Register method call handler
+    _bleChannel.setMethodCallHandler(_handleBluetoothData);
+
+    // Poll moisture sensor every 3s
+    _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-
-      // Simulated drift: moisture slides toward 14% with noise
-      final drift = (_moisture > _targetMc)
-          ? -0.05 + _rand.nextDouble() * 0.02
-          : 0.0 + _rand.nextDouble() * 0.02; // slightly jitter near/below target
-
-      setState(() {
-        _moisture = (_moisture + drift).clamp(10.0, 24.0);
-        _temperature = 25 + _rand.nextDouble() * 5; // 25–30 °C
-      });
-
-      // Record history only during an active run
-      if (_isRunning) {
-        _pushMcSample(_moisture);
-        if (_currentOpId != null) {
-          OperationHistory.instance.logReading(_currentOpId!, _moisture);
-        }
-      }
+      _sendCommand("GET_DHT");
     });
   }
+
 
   @override
   void dispose() {
@@ -83,13 +74,17 @@ class _AutomationPageState extends State<AutomationPage>
 
     if (_currentOpId != null) {
       OperationHistory.instance.logReading(_currentOpId!, _moisture);
-      OperationHistory.instance.endOperation(_currentOpId!);
+      final op = OperationHistory.instance.endOperation(_currentOpId!);
+      if (op != null) {
+        OperationPersistence.save(op); // 🔥 Save automatically
+      }
       _currentOpId = null;
     }
     super.dispose();
   }
 
-  // ---------------------- Helpers ----------------------
+
+    // ---------------------- Helpers ----------------------
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25);
 
   String _fmtTime(Duration d) {
@@ -109,15 +104,54 @@ class _AutomationPageState extends State<AutomationPage>
     )!;
   }
 
-  /// Push a moisture sample (timestamped) and keep a short rolling window.
   void _pushMcSample(double mc) {
     _mcHistory.add(_McSample(DateTime.now(), mc));
     if (_mcHistory.length > _historyMax) {
       _mcHistory.removeAt(0);
     }
   }
+  void _parseDhtResponse(String rawData) {
+      final lines = rawData.split(RegExp(r'[\r\n]+'));
+      for (final line in lines) {
+        final data = line.trim();
+        if (data.isEmpty) continue;
 
-  /// Estimate drying slope (Δ%MC per minute, negative when drying).
+        print("📨 Processing line: $data");
+
+        if (data.startsWith("DHT:")) {
+          final payload = data.replaceFirst("DHT:", "");
+          final parts = payload.split(',');
+          double? h, t;
+
+          for (final part in parts) {
+            final kv = part.split('=');
+            if (kv.length == 2) {
+              final key = kv[0].trim();
+              final val = double.tryParse(kv[1].trim());
+              if (key == 'H') h = val;
+              if (key == 'T') t = val;
+            }
+          }
+
+          if (h != null && t != null) {
+            setState(() {
+              _moisture = h!;
+              _temperature = t!;
+            });
+            print("🟢 Humidity: $_moisture%, Temp: $_temperature°C");
+          } else {
+            print("⚠️ Failed to parse humidity/temp");
+          }
+        } else {
+          print("⚠️ Unrecognized data: $data");
+        }
+      }
+    }
+
+
+
+
+    /// Estimate drying slope (Δ%MC per minute, negative when drying).
   /// Uses simple linear regression over the last N samples for robustness.
   double? _estimateSlopePerMin({int minPoints = 10}) {
     final n = _mcHistory.length;
@@ -198,34 +232,57 @@ class _AutomationPageState extends State<AutomationPage>
       ),
     );
   }
-
-  // ---------------------- Controls ----------------------
-  void _startStopwatch() {
-    setState(() {
-      _isRunning = true;
-      _isPaused = false;
-      _elapsed = Duration.zero;
-      _initialMc = _moisture;  // capture starting MC for progress
-      _mcHistory.clear();
-      _pushMcSample(_moisture);
-    });
-
-    AutomationPage.isActive.value = true;
-    AutomationPage.progress.value = _targetProgress;
-
-    _ticker?.cancel();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+    Future<void> _handleBluetoothData(MethodCall call) async {
+        if (call.method == "onDataReceived") {
+          final String data = call.arguments.toString().trim();
+          print("📩 Native pushed: $data");
+          _parseDhtResponse(data);
+        }
+      }
+    Future<void> _sendCommand(String command) async {
+      try {
+        final response = await _bleChannel.invokeMethod<String>('sendData', {'data': command});
+        if (response == null) {
+          Fluttertoast.showToast(msg: "No response from ESP32");
+        } else {
+          print("📨 Got response: $response");
+          _parseDhtResponse(response);
+        }
+      } catch (e) {
+        Fluttertoast.showToast(msg: "Bluetooth error: $e");
+      }
+    }
+    // ---------------------- Controls ----------------------
+    void _startStopwatch() {
       setState(() {
-        _elapsed += const Duration(seconds: 1);
-        // (moisture samples are pushed by the sensor timer)
+        _isRunning = true;
+        _isPaused = false;
+        _elapsed = Duration.zero;
+        _initialMc = _moisture;  // capture starting MC for progress
+        _mcHistory.clear();
+        _pushMcSample(_moisture);
       });
-      AutomationPage.progress.value = _targetProgress;
-    });
 
-    // Start operation log
-    _currentOpId = OperationHistory.instance.startOperation();
-    OperationHistory.instance.logReading(_currentOpId!, _moisture);
-  }
+      AutomationPage.isActive.value = true;
+      AutomationPage.progress.value = _targetProgress;
+
+      _ticker?.cancel();
+      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        setState(() {
+          _elapsed += const Duration(seconds: 1);
+        });
+        AutomationPage.progress.value = _targetProgress;
+      });
+
+      _currentOpId = OperationHistory.instance.startOperation();
+      OperationHistory.instance.logReading(_currentOpId!, _moisture);
+
+      _sendCommand("ON1");
+      _sendCommand("ON2");
+      _sendCommand("ON3");
+      _sendCommand("ON4");
+    }
+
 
   void _pauseStopwatch() {
     _ticker?.cancel();
@@ -251,7 +308,8 @@ class _AutomationPageState extends State<AutomationPage>
     });
   }
 
-  void _stopStopwatch() {
+// automation.dart
+  Future<void> _stopStopwatch() async {          // <-- async
     _ticker?.cancel();
     setState(() {
       _elapsed = Duration.zero;
@@ -260,11 +318,24 @@ class _AutomationPageState extends State<AutomationPage>
     });
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
-
     if (_currentOpId != null) {
       OperationHistory.instance.logReading(_currentOpId!, _moisture);
-      OperationHistory.instance.endOperation(_currentOpId!);
+
+      final op = OperationHistory.instance.endOperation(_currentOpId!);
+      if (op != null) {
+        try {
+          await OperationPersistence.save(op);  // <-- await
+          debugPrint('SAVE: success ${op.id}');
+        } catch (e, st) {
+          debugPrint('SAVE: failed $e\n$st');   // <-- see actual error
+        }
+      }
       _currentOpId = null;
+
+      _sendCommand("OFF1");
+      _sendCommand("OFF2");
+      _sendCommand("OFF3");
+      _sendCommand("OFF4");
     }
   }
 
@@ -348,7 +419,7 @@ class _AutomationPageState extends State<AutomationPage>
                       minHeight: tileMinH,
                       pad: cardPad,
                       icon: Icons.water_drop_outlined,
-                      label: "Moisture Content",
+                      label: "Humidity",
                       value: "${_moisture.toStringAsFixed(1)}%",
                     ),
                   ),
@@ -493,7 +564,7 @@ class _AutomationPageState extends State<AutomationPage>
                                           Text(
                                             _initialMc == null
                                                 ? "— / ${_targetMc.toStringAsFixed(0)}% MC"
-                                                : "${_moisture.toStringAsFixed(1)}% → ${_targetMc.toStringAsFixed(0)}%",
+                                                : "${_moisture.toStringAsFixed(1)}% RH",
                                             style: t((14 * scale).clamp(12, 18).toDouble(),
                                                 w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
                                           ),
@@ -521,22 +592,41 @@ class _AutomationPageState extends State<AutomationPage>
     );
   }
 
-  // ------- Controls Row -------
+  Future<void> _readMoistureSensor() async {
+      try {
+        final response = await _bleChannel.invokeMethod<String>('sendData', {'data': 'GET_MOISTURE'});
+        if (response != null && response.startsWith("MOISTURE:")) {
+          final raw = response.replaceFirst("MOISTURE:", "").trim();
+          final value = double.tryParse(raw);
+          if (value != null) {
+            // Convert to percent (if needed); depends on your calibration
+            final percent = 100 - (value / 4095.0 * 100);
+            setState(() {
+              _moisture = percent.clamp(0, 100);
+            });
+          }
+        }
+      } catch (e) {
+        Fluttertoast.showToast(msg: "Failed to read moisture: $e");
+      }
+    }
+
+    // ------- Controls Row -------
   Widget _controlsRow(
-    ButtonStyle startStyle,
-    ButtonStyle pauseResumeStyle,
-    ButtonStyle stopStyle,
-    TextStyle Function(double, {FontWeight? w, Color? c}) t,
-  ) {
+      ButtonStyle startStyle,
+      ButtonStyle pauseResumeStyle,
+      ButtonStyle stopStyle,
+      TextStyle Function(double, {FontWeight? w, Color? c}) t,
+      ) {
     Widget label(String text) => FittedBox(
-          fit: BoxFit.scaleDown,
-          child: Text(
-            text,
-            maxLines: 1,
-            softWrap: false,
-            style: t(14, w: FontWeight.w700, c: Colors.white),
-          ),
-        );
+      fit: BoxFit.scaleDown,
+      child: Text(
+        text,
+        maxLines: 1,
+        softWrap: false,
+        style: t(14, w: FontWeight.w700, c: Colors.white),
+      ),
+    );
 
     return Row(
       children: [
@@ -640,11 +730,11 @@ class _MetricBox extends StatelessWidget {
   final Color border;
   final IconData icon;
   final TextStyle Function({
-    double? size,
-    FontWeight? weight,
-    Color color,
-    double? height,
-    TextDecoration? deco,
+  double? size,
+  FontWeight? weight,
+  Color color,
+  double? height,
+  TextDecoration? deco,
   }) textBuilder;
 
   const _MetricBox({
@@ -750,9 +840,9 @@ class _TargetRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TargetRingPainter old) =>
       old.progress != progress ||
-      old.track != track ||
-      old.stroke != stroke ||
-      old.color != color;
+          old.track != track ||
+          old.stroke != stroke ||
+          old.color != color;
 }
 
 // Simple container for moisture history

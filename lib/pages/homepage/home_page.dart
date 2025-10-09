@@ -36,7 +36,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   // platform channel (no plugins, no gradle changes)
   static const MethodChannel _bleChannel =
-      MethodChannel('app.bluetooth/controls');
+  MethodChannel('app.bluetooth/controls');
 
   bool _isConnecting = false;
 
@@ -44,6 +44,8 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   void initState() {
     super.initState();
 
+    // Register Bluetooth data handler
+    _bleChannel.setMethodCallHandler(_handleBluetoothData);
     for (int i = 0; i < 6; i++) {
       final m = 13 + _rand.nextInt(6).toDouble();
       _moistureHistory.add(m);
@@ -51,16 +53,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      setState(() {
-        _tempC = 55 + _rand.nextDouble() * 10;
-        _humidity = 30 + _rand.nextDouble() * 15;
-        _moisture = 13 + _rand.nextInt(6).toDouble();
-        _moistureHistory.add(_moisture);
-        if (_moistureHistory.length > _historyCap) {
-          _moistureHistory.removeAt(0);
-        }
-      });
+      _sendCommand("GET_DHT");
+
+      _moisture = 13 + _rand.nextInt(6).toDouble();
     });
+
 
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
@@ -114,12 +111,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   TextStyle _textStyle(
-    BuildContext context, {
-    double? size,
-    FontWeight? weight,
-    Color? color,
-    double? height,
-  }) =>
+      BuildContext context, {
+        double? size,
+        FontWeight? weight,
+        Color? color,
+        double? height,
+      }) =>
       GoogleFonts.poppins(
         fontSize: size,
         fontWeight: weight,
@@ -128,6 +125,63 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       );
 
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25).toDouble();
+
+  Future<void> _sendCommand(String command) async {
+    try {
+      final response = await _bleChannel.invokeMethod<String>('sendData', {'data': command});
+      if (response != null) {
+        print("📨 Got response: $response");
+        _parseDhtResponse(response);
+      } else {
+        print("⚠️ No response from ESP32");
+      }
+    } catch (e) {
+      print("❌ Bluetooth error: $e");
+    }
+  }
+
+  Future<void> _handleBluetoothData(MethodCall call) async {
+    if (call.method == "onDataReceived") {
+      final String data = call.arguments.toString().trim();
+      print("📩 Native pushed: $data");
+      _parseDhtResponse(data);
+    }
+  }
+  void _parseDhtResponse(String rawData) {
+    final lines = rawData.split(RegExp(r'[\r\n]+'));
+    for (final line in lines) {
+      final data = line.trim();
+      if (data.isEmpty) continue;
+
+      print("📨 Processing line: $data");
+
+      if (data.startsWith("DHT:")) {
+        final payload = data.replaceFirst("DHT:", "");
+        final parts = payload.split(',');
+        double? h, t;
+
+        for (final part in parts) {
+          final kv = part.split('=');
+          if (kv.length == 2) {
+            final key = kv[0].trim();
+            final val = double.tryParse(kv[1].trim());
+            if (key == 'H') h = val;
+            if (key == 'T') t = val;
+          }
+        }
+
+        if (h != null && t != null) {
+          setState(() {
+            _humidity = h!;
+            _tempC = t!;
+          });
+          print("🟢 Updated HomePage → H: $_humidity%, T: $_tempC°C");
+        } else {
+          print("⚠️ Could not parse H/T");
+        }
+      }
+    }
+  }
 
   // ─── Connect + device picker (Android only) ────────────────────────────────
   Future<void> _onConnectPressed() async {
@@ -216,10 +270,22 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                       leading: const Icon(Icons.bluetooth),
                       title: Text(name, style: _textStyle(context, size: 16, weight: FontWeight.w600)),
                       subtitle: Text(addr, style: _textStyle(context, size: 12, weight: FontWeight.w400, color: Colors.grey[600])),
-                      onTap: () {
+                      onTap: () async {
                         Navigator.pop(context);
-                        _toast('Selected $name ($addr)\nTODO: connect to this device.');
-                        // TODO: if you want actual RFCOMM connect next, tell me your module profile (SPP/UUID).
+                        try {
+                          setState(() => _isConnecting = true);
+                          final ok = await _bleChannel.invokeMethod<bool>('connect', {
+                            'address': addr,
+                            'type': 'spp',       // <-- SPP for your ESP32 BluetoothSerial
+                            'timeoutMs': 15000,
+                          }) ?? false;
+
+                          _toast(ok ? 'Connected to $name ($addr)' : 'Failed to connect to $name');
+                        } on PlatformException catch (e) {
+                          _toast('Connect error: ${e.message ?? e.code}');
+                        } finally {
+                          if (mounted) setState(() => _isConnecting = false);
+                        }
                       },
                     );
                   },

@@ -1,17 +1,20 @@
 // lib/data/operation_persistence.dart
 import 'dart:convert';
+import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-import 'package:nice_rice/pages/analytics/analytics.dart' show OperationRecord;
+import 'package:nice_rice/data/operation_models.dart';
 
+/// Handles persistent storage for operation history.
+/// - When user is logged in: uses Firestore.
+/// - When offline/logged out: uses SharedPreferences (local JSON).
 class OperationPersistence {
   static const _kLocalKey = 'operations';
 
-  /// Save a finished operation.
-  /// If logged in => Firestore; else => local SharedPreferences (JSON).
+  // 🔹 Save a finished operation.
   static Future<void> save(OperationRecord op) async {
     final user = FirebaseAuth.instance.currentUser;
     debugPrint('PERSIST save: user=${user?.uid} opId=${op.id}');
@@ -22,6 +25,7 @@ class OperationPersistence {
     }
   }
 
+  // ---------- Firestore ----------
   static Future<void> _saveToFirestore(String uid, OperationRecord op) async {
     try {
       final ref = FirebaseFirestore.instance
@@ -32,19 +36,19 @@ class OperationPersistence {
 
       final data = op.toMap()
         ..addAll({
-          // Helpful metadata to sort/see in console
           '_createdAt': FieldValue.serverTimestamp(),
-          '_source': 'app', // marker to recognize app writes
+          '_source': 'app', // marker for debugging
         });
 
       await ref.set(data, SetOptions(merge: true));
       debugPrint('FIRESTORE WRITE OK: ${ref.path}');
     } catch (e, st) {
-      debugPrint('FIRESTORE WRITE ERROR: $e\n$st');
+      debugPrint('🔥 FIRESTORE WRITE ERROR: $e\n$st');
       rethrow;
     }
   }
 
+  // ---------- Local SharedPreferences ----------
   static Future<void> _saveToLocal(OperationRecord op) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -56,22 +60,83 @@ class OperationPersistence {
       // upsert by id
       final idx = list.indexWhere((m) => m['id'] == op.id);
       final map = op.toMap();
-      if (idx >= 0) list[idx] = map; else list.add(map);
+      if (idx >= 0) {
+        list[idx] = map;
+      } else {
+        list.add(map);
+      }
 
       await prefs.setString(_kLocalKey, jsonEncode(list));
-      debugPrint('LOCAL SAVE OK: count=${list.length}');
+      debugPrint('💾 LOCAL SAVE OK: count=${list.length}');
     } catch (e, st) {
-      debugPrint('LOCAL SAVE ERROR: $e\n$st');
+      debugPrint('❌ LOCAL SAVE ERROR: $e\n$st');
       rethrow;
     }
   }
 
-  /// Debug helper: list the current user's operations from Firestore.
+  // ---------- Loaders ----------
+  /// Loads locally saved operations (for offline history).
+  static Future<List<OperationRecord>> loadLocal() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_kLocalKey);
+      if (raw == null || raw.isEmpty) return [];
+      final list = List<Map<String, dynamic>>.from(jsonDecode(raw) as List);
+      return list.map(OperationRecord.fromMap).toList();
+    } catch (e, st) {
+      debugPrint('❌ LOCAL LOAD ERROR: $e\n$st');
+      return [];
+    }
+  }
+
+  /// Loads operations from Firestore once (not streaming).
+  static Future<List<OperationRecord>> loadCloudOnce({int limit = 100}) async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return [];
+      final snap = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .collection('operations')
+          .orderBy('startedAt', descending: true)
+          .limit(limit)
+          .get();
+
+      return snap.docs
+          .map((d) => OperationRecord.fromMap(Map<String, dynamic>.from(d.data())))
+          .toList();
+    } catch (e, st) {
+      debugPrint('❌ FIRESTORE LOAD ERROR: $e\n$st');
+      return [];
+    }
+  }
+
+  /// Watches Firestore in real-time.
+  /// Falls back to local (one-shot) when user not logged in.
+  static Stream<List<OperationRecord>> watchCloud({int limit = 200}) {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      // No user: stream local once, then close.
+      return Stream.fromFuture(loadLocal());
+    }
+
+    final col = FirebaseFirestore.instance
+        .collection('users')
+        .doc(uid)
+        .collection('operations')
+        .orderBy('startedAt', descending: true)
+        .limit(limit);
+
+    return col.snapshots().map((qs) =>
+        qs.docs.map((d) => OperationRecord.fromMap(Map<String, dynamic>.from(d.data()))).toList());
+  }
+
+  // ---------- Debug helpers ----------
   static Future<void> debugListCloud({int limit = 20}) async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     debugPrint('DEBUG LIST CLOUD uid=$uid');
     if (uid == null) {
-      debugPrint('No user logged in.');
+      debugPrint('⚠️ No user logged in.');
       return;
     }
     final snap = await FirebaseFirestore.instance
@@ -88,7 +153,6 @@ class OperationPersistence {
     }
   }
 
-  /// Debug helper: list all operations across users using a collection group.
   static Future<void> debugListAllOps({int limit = 20}) async {
     final snap = await FirebaseFirestore.instance
         .collectionGroup('operations')
@@ -100,14 +164,5 @@ class OperationPersistence {
     for (final d in snap.docs) {
       debugPrint(' • ${d.reference.path}');
     }
-  }
-
-  /// Load locally saved operations (for offline history).
-  static Future<List<OperationRecord>> loadLocal() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_kLocalKey);
-    if (raw == null || raw.isEmpty) return [];
-    final list = List<Map<String, dynamic>>.from(jsonDecode(raw) as List);
-    return list.map(OperationRecord.fromMap).toList();
   }
 }

@@ -12,6 +12,7 @@ import 'pages/landingpage/splash_screen.dart';
 import 'pages/homepage/home_page.dart';
 import 'pages/signup/signup.dart';
 
+import 'package:nice_rice/data/operation_persistence.dart';
 import 'tab.dart'; // AppShell (parent Scaffold that owns the header)
 
 // Theme controller
@@ -22,7 +23,7 @@ final ThemeController _theme = ThemeController();
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-
+  OperationPersistence.attachOneTimeLoginSync(clearLocalAfter: true);
   runApp(ThemeScope(controller: _theme, child: const BootstrapApp()));
 }
 

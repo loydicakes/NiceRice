@@ -6,12 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:flutter/services.dart';
-import 'package:nice_rice/data/operation_persistence.dart';
 
 
 import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart'; // ThemeScope + context.brand
-import 'package:nice_rice/pages/analytics/analytics.dart' show OperationHistory;
+import 'package:nice_rice/data/operation_history.dart';
+
 
 class AutomationPage extends StatefulWidget {
   const AutomationPage({super.key});
@@ -72,14 +72,16 @@ class _AutomationPageState extends State<AutomationPage>
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
 
+    // Best-effort finalize the operation (no await in dispose)
     if (_currentOpId != null) {
-      OperationHistory.instance.logReading(_currentOpId!, _moisture);
-      final op = OperationHistory.instance.endOperation(_currentOpId!);
-      if (op != null) {
-        OperationPersistence.save(op); // 🔥 Save automatically
-      }
+      final id = _currentOpId!;
       _currentOpId = null;
+      OperationHistory.instance.logReading(id, _moisture);
+      // endOperation() persists internally (Firestore/local). Fire-and-forget.
+      // ignore: discarded_futures
+      OperationHistory.instance.endOperation(id);
     }
+
     super.dispose();
   }
 
@@ -319,18 +321,11 @@ class _AutomationPageState extends State<AutomationPage>
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
     if (_currentOpId != null) {
-      OperationHistory.instance.logReading(_currentOpId!, _moisture);
-
-      final op = OperationHistory.instance.endOperation(_currentOpId!);
-      if (op != null) {
-        try {
-          await OperationPersistence.save(op);  // <-- await
-          debugPrint('SAVE: success ${op.id}');
-        } catch (e, st) {
-          debugPrint('SAVE: failed $e\n$st');   // <-- see actual error
-        }
-      }
+      final id = _currentOpId!;
       _currentOpId = null;
+
+      OperationHistory.instance.logReading(id, _moisture);
+      await OperationHistory.instance.endOperation(id); // persists internally
 
       _sendCommand("OFF1");
       _sendCommand("OFF2");

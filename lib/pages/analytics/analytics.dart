@@ -1,115 +1,14 @@
 // lib/pages/analytics/analytics.dart
-import 'dart:collection';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
+import 'package:nice_rice/data/operation_models.dart';
+import 'package:nice_rice/data/operation_history.dart';
+
 import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart'; // ThemeScope + BuildContext.brand
-
-/// ------------ Data models ------------
-class MoistureReading {
-  final DateTime t;
-  final double value;
-  const MoistureReading(this.t, this.value);
-
-  Map<String, dynamic> toMap() => {
-    't': t.toIso8601String(),
-    'value': value,
-  };
-
-  factory MoistureReading.fromMap(Map<String, dynamic> m) =>
-      MoistureReading(DateTime.parse(m['t']), (m['value'] as num).toDouble());
-}
-
-class OperationRecord {
-  final String id;
-  final DateTime startedAt;
-  DateTime? endedAt;
-  final List<MoistureReading> readings;
-
-  OperationRecord({
-    required this.id,
-    required this.startedAt,
-    List<MoistureReading>? readings,
-  }) : readings = readings ?? [];
-
-  Duration? get duration =>
-      endedAt == null ? null : endedAt!.difference(startedAt);
-
-  /// 🔹 This is your original displayTitle — keep it!
-  String get displayTitle {
-    final df = DateFormat('MMM d, HH:mm');
-    final start = df.format(startedAt);
-    final dur = duration == null
-        ? ''
-        : ' • ${duration!.inMinutes.remainder(60).toString().padLeft(2, '0')}:${duration!.inSeconds.remainder(60).toString().padLeft(2, '0')}';
-    return 'Operation $start$dur';
-  }
-
-  /// JSON helpers
-  Map<String, dynamic> toMap() => {
-    'id': id,
-    'startedAt': startedAt.toIso8601String(),
-    'endedAt': endedAt?.toIso8601String(),
-    'readings': readings.map((r) => r.toMap()).toList(),
-  };
-
-  factory OperationRecord.fromMap(Map<String, dynamic> m) => OperationRecord(
-    id: m['id'],
-    startedAt: DateTime.parse(m['startedAt']),
-    readings: (m['readings'] as List)
-        .map((e) => MoistureReading.fromMap(e))
-        .toList(),
-  )..endedAt =
-  (m['endedAt'] != null ? DateTime.parse(m['endedAt']) : null);
-}
-
-
-/// ------------ Repository (singleton) ------------
-abstract class OperationRepository {
-  UnmodifiableListView<OperationRecord> get operations;
-  OperationRecord? getById(String id);
-}
-
-class OperationHistory implements OperationRepository {
-  OperationHistory._();
-  static final OperationHistory instance = OperationHistory._();
-
-  final List<OperationRecord> _ops = [];
-
-  String startOperation() {
-    final id = DateTime.now().millisecondsSinceEpoch.toString();
-    _ops.add(OperationRecord(id: id, startedAt: DateTime.now()));
-    return id;
-  }
-
-  void logReading(String opId, double moisture, {DateTime? at}) {
-    final op = getById(opId);
-    if (op == null) return;
-    op.readings.add(MoistureReading(at ?? DateTime.now(), moisture));
-  }
-
-  OperationRecord? endOperation(String opId) {
-    final op = getById(opId);
-    if (op == null) return null;
-    op.endedAt ??= DateTime.now();
-    return op; // <-- return the finished record
-  }
-
-  @override
-  OperationRecord? getById(String id) {
-    for (final o in _ops) {
-      if (o.id == id) return o;
-    }
-    return null;
-  }
-
-  @override
-  UnmodifiableListView<OperationRecord> get operations =>
-      UnmodifiableListView(_ops.reversed); // newest first
-}
 
 /// ------------ Analytics Page ------------
 class AnalyticsPage extends StatefulWidget {
@@ -121,34 +20,20 @@ class AnalyticsPage extends StatefulWidget {
 
 class _AnalyticsPageState extends State<AnalyticsPage> {
   String? _selectedOpId;
+  late final OperationHistory repo;
+
+  @override
+  void initState() {
+    super.initState();
+    repo = OperationHistory.instance;
+    repo.ensureLoaded(); // load local + watch cloud
+  }
 
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25);
 
   @override
   Widget build(BuildContext context) {
     final themeScope = ThemeScope.of(context);
-    final cs = Theme.of(context).colorScheme;
-
-    final ops = OperationHistory.instance.operations;
-    final OperationRecord? selected = _selectedOpId == null
-        ? (ops.isNotEmpty ? ops.first : null)
-        : OperationHistory.instance.getById(_selectedOpId!);
-    _selectedOpId ??= selected?.id;
-
-    TextStyle txt({
-      double? size,
-      FontWeight? w,
-      Color? c,
-      double? h,
-      TextDecoration? d,
-    }) =>
-        GoogleFonts.poppins(
-          fontSize: size,
-          fontWeight: w,
-          color: c ?? cs.onSurface,
-          height: h,
-          decoration: d,
-        );
 
     return Scaffold(
       appBar: PageHeader(
@@ -156,142 +41,177 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         onThemeChanged: themeScope.setDark,
       ),
       body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final maxW = constraints.maxWidth;
-            final isCompact = maxW < 420;
-            final isTablet = maxW >= 700;
-            final scale = _scaleForWidth(maxW);
-            final contentMaxWidth = isTablet ? 860.0 : 600.0;
+        child: ListenableBuilder(
+          listenable: repo,
+          builder: (context, _) {
+            final cs = Theme.of(context).colorScheme;
+            final ops = repo.operations;
 
-            final emptyH = (180 * scale).clamp(140, 220);
+            OperationRecord? selected;
+            if (ops.isNotEmpty) {
+              final fallback = ops.first;
+              selected = (_selectedOpId == null)
+                  ? fallback
+                  : repo.getById(_selectedOpId!) ?? fallback;
+            }
 
-            return Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: contentMaxWidth),
-                child: ListView(
-                  padding: const EdgeInsets.all(16),
-                  children: [
-                    if (ops.isEmpty)
-                      _EmptyState(
-                        height: emptyH.toDouble(),
-                        message:
+            TextStyle txt({
+              double? size,
+              FontWeight? w,
+              Color? c,
+              double? h,
+              TextDecoration? d,
+            }) =>
+                GoogleFonts.poppins(
+                  fontSize: size,
+                  fontWeight: w,
+                  color: c ?? cs.onSurface,
+                  height: h,
+                  decoration: d,
+                );
+
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final maxW = constraints.maxWidth;
+                final isTablet = maxW >= 700;
+                final scale = _scaleForWidth(maxW);
+                final contentMaxWidth = isTablet ? 860.0 : 600.0;
+                final emptyH = (180 * scale).clamp(140, 220);
+
+                return Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: contentMaxWidth),
+                    child: ListView(
+                      padding: const EdgeInsets.all(16),
+                      children: [
+                        if (ops.isEmpty)
+                          _EmptyState(
+                            height: emptyH.toDouble(),
+                            message:
                             'No completed operations yet.\nRun one in Automation to build history.',
-                        textStyle: txt(
-                          size: 14 * scale,
-                          w: FontWeight.w500,
-                          c: cs.onSurface.withOpacity(0.85),
-                        ),
-                      )
-                    else ...[
-                      // ───────── Operation picker ─────────
-                      Card(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            horizontal: (12 * scale).clamp(10, 16),
-                            vertical: (10 * scale).clamp(8, 14),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(Icons.history,
-                                  size: (20 * scale).clamp(18, 24),
-                                  color: context.brand),
-                              SizedBox(width: (10 * scale).clamp(8, 14)),
-                              Expanded(
-                                child: DropdownButtonHideUnderline(
-                                  child: DropdownButton<String>(
-                                    value: _selectedOpId ?? ops.first.id,
-                                    isExpanded: true,
-                                    iconEnabledColor: context.brand,
-                                    items: ops
-                                        .map(
-                                          (op) => DropdownMenuItem(
+                            textStyle: txt(
+                              size: 14 * scale,
+                              w: FontWeight.w500,
+                              c: cs.onSurface.withOpacity(0.85),
+                            ),
+                          )
+                        else ...[
+                          // ───────── Operation picker ─────────
+                          Card(
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: (12 * scale).clamp(10, 16),
+                                vertical: (10 * scale).clamp(8, 14),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.history,
+                                      size: (20 * scale).clamp(18, 24),
+                                      color: context.brand),
+                                  SizedBox(width: (10 * scale).clamp(8, 14)),
+                                  Expanded(
+                                    child: DropdownButtonHideUnderline(
+                                      child: DropdownButton<String>(
+                                        value: (selected ?? ops.first).id,
+                                        isExpanded: true,
+                                        iconEnabledColor: context.brand,
+                                        items: ops
+                                            .map(
+                                              (op) => DropdownMenuItem(
                                             value: op.id,
                                             child: Text(
                                               op.displayTitle,
-                                              overflow: TextOverflow.ellipsis,
+                                              overflow:
+                                              TextOverflow.ellipsis,
                                               style: txt(
-                                                size: (14 * scale).clamp(12, 18),
+                                                size: (14 * scale)
+                                                    .clamp(12, 18),
                                                 w: FontWeight.w600,
                                               ),
                                             ),
                                           ),
                                         )
-                                        .toList(),
-                                    onChanged: (value) {
-                                      if (value != null) {
-                                        setState(() => _selectedOpId = value);
-                                      }
-                                    },
+                                            .toList(),
+                                        onChanged: (value) {
+                                          if (value != null) {
+                                            setState(() {
+                                              _selectedOpId = value;
+                                            });
+                                          }
+                                        },
+                                      ),
+                                    ),
                                   ),
+                                ],
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          // ───────── Stats tiles ─────────
+                          if (selected != null &&
+                              selected.readings.isNotEmpty)
+                            Card(
+                              child: Padding(
+                                padding: EdgeInsets.all(
+                                    (16 * scale).clamp(12, 22)),
+                                child: _StatsRow(
+                                  selected: selected!,
+                                  scale: scale,
                                 ),
                               ),
-                            ],
-                          ),
-                        ),
-                      ),
+                            ),
 
-                      const SizedBox(height: 14),
+                          const SizedBox(height: 14),
 
-                      // ───────── Stats tiles ─────────
-                      if (selected != null && selected.readings.isNotEmpty)
-                        Card(
-                          child: Padding(
-                            padding: EdgeInsets.all((16 * scale).clamp(12, 22)),
-                            child: _StatsRow(
-                              selected: selected,
+                          // ───────── Chart ─────────
+                          _SectionCard(
+                            title: 'Moisture Content',
+                            titleStyle: txt(
+                              size: (16 * scale).clamp(14, 20),
+                              w: FontWeight.w700,
+                              c: context.brand,
+                            ),
+                            child: (selected == null ||
+                                selected.readings.length < 2)
+                                ? _EmptyState(
+                              height: emptyH * 0.7,
+                              message: 'Not enough data points.',
+                              textStyle: txt(
+                                size: (14 * scale).clamp(12, 18),
+                                w: FontWeight.w500,
+                                c: cs.onSurface.withOpacity(0.85),
+                              ),
+                            )
+                                : _MoistureChart(
+                              readings: selected.readings,
+                              height: (isTablet ? 320.0 : 260.0) *
+                                  (scale.clamp(0.9, 1.1)),
                               scale: scale,
                             ),
                           ),
-                        ),
 
-                      const SizedBox(height: 14),
+                          const SizedBox(height: 12),
 
-                      // ───────── Chart ─────────
-                      _SectionCard(
-                        title: 'Moisture Content',
-                        titleStyle: txt(
-                          size: (16 * scale).clamp(14, 20),
-                          w: FontWeight.w700,
-                          c: context.brand,
-                        ),
-                        child: (selected == null ||
-                                selected.readings.length < 2)
-                            ? _EmptyState(
-                                height: emptyH * 0.7,
-                                message: 'Not enough data points.',
-                                textStyle: txt(
-                                  size: (14 * scale).clamp(12, 18),
-                                  w: FontWeight.w500,
-                                  c: cs.onSurface.withOpacity(0.85),
-                                ),
-                              )
-                            : _MoistureChart(
-                                readings: selected.readings,
-                                height: (isTablet ? 320.0 : 260.0) *
-                                    (scale.clamp(0.9, 1.1)),
-                                scale: scale,
-                              ),
-                      ),
+                          // ───────── Info footer ─────────
+                          if (selected != null) _InfoFooter(op: selected!),
 
-                      const SizedBox(height: 12),
+                          const SizedBox(height: 12),
 
-                      // ───────── Info footer ─────────
-                      if (selected != null) _InfoFooter(op: selected),
-
-                      const SizedBox(height: 12),
-
-                      // ───────── Interpretation ─────────
-                      _InterpretationCard(
-                        op: selected,
-                        titleSize: (16 * scale).clamp(14, 20),
-                        bulletGap: (4 * scale).clamp(3, 8),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
+                          // ───────── Interpretation ─────────
+                          _InterpretationCard(
+                            op: selected,
+                            titleSize: (16 * scale).clamp(14, 20),
+                            bulletGap: (4 * scale).clamp(3, 8),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
             );
           },
         ),
@@ -365,10 +285,10 @@ class _StatsRow extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     TextStyle t({double? size, FontWeight? w}) => GoogleFonts.poppins(
-          fontSize: size,
-          fontWeight: w,
-          color: cs.onSurface,
-        );
+      fontSize: size,
+      fontWeight: w,
+      color: cs.onSurface,
+    );
 
     final vals = selected.readings.map((e) => e.value).toList();
     final avg = vals.reduce((a, b) => a + b) / vals.length;
@@ -391,11 +311,14 @@ class _StatsRow extends StatelessWidget {
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
-              child:
-                  Text(value, style: t(size: (24 * scale).clamp(20, 30), w: FontWeight.w800)),
+              child: Text(
+                value,
+                style: t(size: (24 * scale).clamp(20, 30), w: FontWeight.w800),
+              ),
             ),
             SizedBox(height: (2 * scale).clamp(2, 6)),
-            Text(label, style: t(size: (13 * scale).clamp(11, 16), w: FontWeight.w600)),
+            Text(label,
+                style: t(size: (13 * scale).clamp(11, 16), w: FontWeight.w600)),
           ],
         ),
       );
@@ -415,11 +338,17 @@ class _StatsRow extends StatelessWidget {
 
     return Row(
       children: [
-        Expanded(child: tile("Average", "${avg.toStringAsFixed(1)}%", Icons.timeline_outlined)),
+        Expanded(
+            child: tile("Average", "${avg.toStringAsFixed(1)}%",
+                Icons.timeline_outlined)),
         const SizedBox(width: 12),
-        Expanded(child: tile("Min", "${minV.toStringAsFixed(1)}%", Icons.trending_down_outlined)),
+        Expanded(
+            child: tile("Min", "${minV.toStringAsFixed(1)}%",
+                Icons.trending_down_outlined)),
         const SizedBox(width: 12),
-        Expanded(child: tile("Max", "${maxV.toStringAsFixed(1)}%", Icons.trending_up_outlined)),
+        Expanded(
+            child: tile("Max", "${maxV.toStringAsFixed(1)}%",
+                Icons.trending_up_outlined)),
       ],
     );
   }
@@ -442,7 +371,8 @@ class _MoistureChart extends StatelessWidget {
 
     final first = readings.first.t;
     final spots = readings
-        .map((r) => FlSpot(r.t.difference(first).inSeconds.toDouble(), r.value))
+        .map((r) =>
+        FlSpot(r.t.difference(first).inSeconds.toDouble(), r.value))
         .toList();
 
     final yVals = readings.map((e) => e.value).toList();
@@ -473,13 +403,17 @@ class _MoistureChart extends StatelessWidget {
           maxY: yMax,
           gridData: FlGridData(
             show: true,
-            horizontalInterval: ((yMax - yMin) / 4).clamp(1, 100).toDouble(),
+            horizontalInterval:
+            ((yMax - yMin) / 4).clamp(1, 100).toDouble(),
             drawVerticalLine: false,
-            getDrawingHorizontalLine: (_) => FlLine(color: gridColor, strokeWidth: 1),
+            getDrawingHorizontalLine: (_) =>
+                FlLine(color: gridColor, strokeWidth: 1),
           ),
           titlesData: FlTitlesData(
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles:
+            const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles:
+            const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
@@ -487,7 +421,8 @@ class _MoistureChart extends StatelessWidget {
                 interval: (xMax - xMin) / 4.0,
                 getTitlesWidget: (v, m) => Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: Text(xLabel(v), style: t((11 * scale).clamp(10, 14))),
+                  child: Text(xLabel(v),
+                      style: t((11 * scale).clamp(10, 14))),
                 ),
               ),
             ),
@@ -495,9 +430,11 @@ class _MoistureChart extends StatelessWidget {
               sideTitles: SideTitles(
                 showTitles: true,
                 reservedSize: (36 * scale).clamp(28, 44),
-                interval: ((yMax - yMin) / 5).clamp(1, 100).toDouble(),
+                interval:
+                ((yMax - yMin) / 5).clamp(1, 100).toDouble(),
                 getTitlesWidget: (v, m) =>
-                    Text(v.toStringAsFixed(0), style: t((11 * scale).clamp(10, 14))),
+                    Text(v.toStringAsFixed(0),
+                        style: t((11 * scale).clamp(10, 14))),
               ),
             ),
           ),
@@ -584,7 +521,8 @@ class _InterpretationCard extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     TextStyle t(double sz, {FontWeight? w, Color? c}) =>
-        GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+        GoogleFonts.poppins(
+            fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
 
     if (op == null || op!.readings.isEmpty) {
       return _SectionCard(
@@ -592,7 +530,8 @@ class _InterpretationCard extends StatelessWidget {
         titleStyle: t(titleSize, w: FontWeight.w700),
         child: _EmptyState(
           message: 'No data to interpret.',
-          textStyle: t(14, w: FontWeight.w500, c: cs.onSurface.withOpacity(0.85)),
+          textStyle:
+          t(14, w: FontWeight.w500, c: cs.onSurface.withOpacity(0.85)),
         ),
       );
     }
@@ -621,7 +560,7 @@ class _InterpretationCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           ...analysis.points.map(
-            (p) => Padding(
+                (p) => Padding(
               padding: EdgeInsets.only(bottom: bulletGap),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -651,16 +590,14 @@ _AnalysisResult _analyzeOperation(OperationRecord op) {
   final last = values.last;
   final delta = last - first;
 
-  // Trend summary
-  final trend = delta.abs() < 1.0 ? 'stable' : (delta > 0 ? 'rising' : 'falling');
+  final trend =
+  delta.abs() < 1.0 ? 'stable' : (delta > 0 ? 'rising' : 'falling');
 
-  // Duration summary
   final dur = op.duration;
   final durText = (dur == null)
       ? '—'
       : '${dur.inMinutes.remainder(60).toString().padLeft(2, '0')}:${dur.inSeconds.remainder(60).toString().padLeft(2, '0')}';
 
-  // Target range (same as Home/Automation)
   const low = 12.0;
   const high = 18.0;
 
@@ -684,11 +621,11 @@ _AnalysisResult _analyzeOperation(OperationRecord op) {
 
   final recommendation = switch (status) {
     _MoistureStatus.tooDry =>
-        'Recommendation: Consider watering soon to lift moisture above $low%.',
+    'Recommendation: Consider watering soon to lift moisture above $low%.',
     _MoistureStatus.ok =>
-        'Recommendation: Conditions look good (target is $low–$high%). Maintain current routine.',
+    'Recommendation: Conditions look good (target is $low–$high%). Maintain current routine.',
     _MoistureStatus.tooWet =>
-        'Recommendation: Reduce watering or allow drying until moisture falls below $high%.',
+    'Recommendation: Reduce watering or allow drying until moisture falls below $high%.',
   };
 
   return _AnalysisResult(

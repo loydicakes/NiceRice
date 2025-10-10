@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:fluttertoast/fluttertoast.dart';
 import 'package:flutter/services.dart';
-
+import 'package:nice_rice/data/operation_persistence.dart';
 
 import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart'; // ThemeScope + context.brand
@@ -26,43 +26,56 @@ class AutomationPage extends StatefulWidget {
 
 class _AutomationPageState extends State<AutomationPage>
     with AutomaticKeepAliveClientMixin {
-    static final MethodChannel _bleChannel = MethodChannel('app.bluetooth/controls');
+  static final MethodChannel _bleChannel = MethodChannel('app.bluetooth/controls');
 
   @override
   bool get wantKeepAlive => true;
+
   // ---------------------- Stopwatch / State ----------------------
-  Timer? _ticker;                    // 1s heartbeat
+  Timer? _ticker; // 1s heartbeat
   Duration _elapsed = Duration.zero; // UI stopwatch
   bool _isPaused = false;
   bool _isRunning = false;
   String? _currentOpId;
 
-  // ---------------------- Sensors (simulated) ----------------------
+  // ---------------------- Sensors ----------------------
   Timer? _sensorTimer;
-  final Random _rand = Random();
-  double _moisture = 0.0;
+  double _moisture = 0.0; // current RH (%)
   double _temperature = 27.0;
 
-  // ---------------------- Drying target / estimator ----------------------
-  static const double _targetMc = 14.0;      // target MC(% wet basis)
-  double? _initialMc;                        // captured at session start
-  final List<_McSample> _mcHistory = [];     // rolling window for slope/ETA
-  static const int _historyMax = 120;        // ~4 minutes @ 2s interval (tune)
+  // ---------------------- Drying planner ----------------------
+  // Target MC input (validated 9–14)
+  double _targetMc = 14.0;
+
+  // Estimated initial MC chosen from preset
+  // 0 = none, 1 = 20–25, 2 = 26–30, 3 = 15–19
+  int _initialPreset = 0;
+
+  // Captured at session start (for logs/display)
+  double? _initialMc;
+
+  // INTERNAL drying rate (hidden from UI). Change here when you recalibrate.
+  static const double _kRatePctPerMin = 0.5; // e.g., 0.5 %MC / min
+
+  // Planned duration for the timer (computed at Commence)
+  Duration? _plannedDuration;
+
+  // History kept for your future slope-based estimator (kept for later)
+  final List<_McSample> _mcHistory = [];
+  static const int _historyMax = 120;
 
   @override
   void initState() {
     super.initState();
 
-    // Register method call handler
     _bleChannel.setMethodCallHandler(_handleBluetoothData);
 
-    // Poll moisture sensor every 3s
+    // Poll sensor every 3s
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
       _sendCommand("GET_DHT");
     });
   }
-
 
   @override
   void dispose() {
@@ -74,7 +87,11 @@ class _AutomationPageState extends State<AutomationPage>
 
     // Best-effort finalize the operation (no await in dispose)
     if (_currentOpId != null) {
-      final id = _currentOpId!;
+      OperationHistory.instance.logReading(_currentOpId!, _moisture);
+      final op = OperationHistory.instance.endOperation(_currentOpId!);
+      if (op != null) {
+        OperationPersistence.save(op);
+      }
       _currentOpId = null;
       OperationHistory.instance.logReading(id, _moisture);
       // endOperation() persists internally (Firestore/local). Fire-and-forget.
@@ -85,8 +102,7 @@ class _AutomationPageState extends State<AutomationPage>
     super.dispose();
   }
 
-
-    // ---------------------- Helpers ----------------------
+  // ---------------------- Helpers ----------------------
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25);
 
   String _fmtTime(Duration d) {
@@ -97,112 +113,129 @@ class _AutomationPageState extends State<AutomationPage>
     return "${two(d.inMinutes)}:${two(d.inSeconds.remainder(60))}";
   }
 
-  // Color from dark yellow → light yellow
   Color _ringColor(double p) {
-    return Color.lerp(
-      const Color(0xFFB58900), // dark yellow
-      const Color(0xFFFFFF8D), // light yellow
-      p.clamp(0.0, 1.0),
-    )!;
+    return Color.lerp(const Color(0xFFB58900), const Color(0xFFFFFF8D), p.clamp(0.0, 1.0))!;
   }
 
   void _pushMcSample(double mc) {
     _mcHistory.add(_McSample(DateTime.now(), mc));
-    if (_mcHistory.length > _historyMax) {
-      _mcHistory.removeAt(0);
-    }
+    if (_mcHistory.length > _historyMax) _mcHistory.removeAt(0);
   }
+
+  // ------- BLE parsing -------
   void _parseDhtResponse(String rawData) {
-      final lines = rawData.split(RegExp(r'[\r\n]+'));
-      for (final line in lines) {
-        final data = line.trim();
-        if (data.isEmpty) continue;
+    final lines = rawData.split(RegExp(r'[\r\n]+'));
+    for (final line in lines) {
+      final data = line.trim();
+      if (data.isEmpty) continue;
 
-        print("📨 Processing line: $data");
+      if (data.startsWith("DHT:")) {
+        final payload = data.replaceFirst("DHT:", "");
+        final parts = payload.split(',');
+        double? h, t;
 
-        if (data.startsWith("DHT:")) {
-          final payload = data.replaceFirst("DHT:", "");
-          final parts = payload.split(',');
-          double? h, t;
-
-          for (final part in parts) {
-            final kv = part.split('=');
-            if (kv.length == 2) {
-              final key = kv[0].trim();
-              final val = double.tryParse(kv[1].trim());
-              if (key == 'H') h = val;
-              if (key == 'T') t = val;
-            }
+        for (final part in parts) {
+          final kv = part.split('=');
+          if (kv.length == 2) {
+            final key = kv[0].trim();
+            final val = double.tryParse(kv[1].trim());
+            if (key == 'H') h = val;
+            if (key == 'T') t = val;
           }
+        }
 
-          if (h != null && t != null) {
-            setState(() {
-              _moisture = h!;
-              _temperature = t!;
-            });
-            print("🟢 Humidity: $_moisture%, Temp: $_temperature°C");
-          } else {
-            print("⚠️ Failed to parse humidity/temp");
-          }
-        } else {
-          print("⚠️ Unrecognized data: $data");
+        if (h != null && t != null) {
+          setState(() {
+            _moisture = h!;
+            _temperature = t!;
+          });
         }
       }
     }
+  }
 
+  // Kept for future slope-based estimator (not used by timer now)
+  double? _estimateSlopePerMin({int minPoints = 10}) => null;
 
+  // ───────── Time-based progress for the ring ─────────
+  double get _timeProgress {
+    if (_plannedDuration == null || _plannedDuration!.inSeconds <= 0) return 0;
+    return (_elapsed.inMilliseconds / _plannedDuration!.inMilliseconds).clamp(0.0, 1.0);
+  }
 
-
-    /// Estimate drying slope (Δ%MC per minute, negative when drying).
-  /// Uses simple linear regression over the last N samples for robustness.
-  double? _estimateSlopePerMin({int minPoints = 10}) {
-    final n = _mcHistory.length;
-    if (n < minPoints) return null;
-
-    // Convert to minutes since first sample to avoid large x-values
-    final t0 = _mcHistory.first.ts;
-    final xs = <double>[];
-    final ys = <double>[];
-    for (final s in _mcHistory) {
-      xs.add(s.ts.difference(t0).inMilliseconds / 60000.0); // minutes
-      ys.add(s.mc);
+  String get _etaLabel {
+    if (!(_isRunning || _isPaused) || _plannedDuration == null) return "";
+    final remaining = _plannedDuration! - _elapsed < Duration.zero ? Duration.zero : _plannedDuration! - _elapsed;
+    if (remaining.inMinutes < 60) {
+      final m = remaining.inMinutes;
+      final s = remaining.inSeconds.remainder(60);
+      return m > 0 ? "~${m}m ${s}s remaining" : "~${s}s remaining";
+    } else {
+      final h = remaining.inHours;
+      final m = remaining.inMinutes.remainder(60);
+      return "~${h}h ${m}m remaining";
     }
+  }
 
-    // Linear regression y = a + b*x
-    final meanX = xs.reduce((a, b) => a + b) / xs.length;
-    final meanY = ys.reduce((a, b) => a + b) / ys.length;
+  // ───────── Inputs / validation ─────────
+  void _setTargetMc(double v) {
+    setState(() => _targetMc = v.clamp(9.0, 14.0));
+  }
 
-    double num = 0.0, den = 0.0;
-    for (var i = 0; i < xs.length; i++) {
-      final dx = xs[i] - meanX;
-      num += dx * (ys[i] - meanY);
-      den += dx * dx;
+  String _targetTip(double v) {
+    if (v <= 9.5) return "9% MC → for long-term seed preservation.";
+    if (v >= 13.0) return "13–14% MC → 2–3 months storage; recommended for milling.";
+    if (v >= 12.0 && v <= 12.5) return "12–12.5% MC → storage beyond 3 months.";
+    return "Pick 9–14% based on purpose.";
+  }
+
+  void _pickPreset(int idx) => setState(() => _initialPreset = idx);
+
+  /// Returns the (low, high) initial MC range and its midpoint.
+  ({double low, double high, double mid})? _presetRange(int idx) {
+    switch (idx) {
+      case 1:
+        return (low: 20.0, high: 25.0, mid: 22.5);
+      case 2:
+        return (low: 26.0, high: 30.0, mid: 28.0);
+      case 3:
+        return (low: 15.0, high: 19.0, mid: 17.0);
+      default:
+        return null;
     }
-    if (den == 0) return null;
-
-    final b = num / den; // slope in %MC per minute (should be negative)
-    // Smooth a bit with last computed slope if you want (omitted here for clarity)
-    return b;
   }
 
-  /// Progress toward 14% based on initial MC and current MC.
-  double get _targetProgress {
-    if (_initialMc == null) return 0.0;
-    final span = (_initialMc! - _targetMc);
-    if (span <= 0) return 1.0; // edge case: already <= target at start
-    final done = (_initialMc! - _moisture);
-    return (done / span).clamp(0.0, 1.0);
+  /// Compute planned duration using loss range → average loss → time.
+  /// Adds a small buffer (10%) to account for ramp/overheads; clamp to >= 1 min.
+  Duration? _computePlanDuration() {
+    final range = _presetRange(_initialPreset);
+    if (range == null) return null;
+
+    final lowLoss  = (range.low  - _targetMc).clamp(0, double.infinity);
+    final highLoss = (range.high - _targetMc).clamp(0, double.infinity);
+
+    // If both are zero, already at/below target.
+    if (lowLoss == 0 && highLoss == 0) return Duration.zero;
+
+    final avgLoss = (lowLoss + highLoss) / 2.0;
+
+    // Time (minutes) = average loss / rate, then add buffer
+    double minutes = avgLoss / _kRatePctPerMin;
+    minutes *= 1.10; // +10% buffer
+
+    // Round to nearest 30 seconds for friendlier display
+    final seconds = (minutes * 60);
+    final rounded = (seconds / 30).round() * 30;
+    final result = Duration(seconds: rounded);
+
+    // Minimum 1 minute if > 0
+    if (result == Duration.zero && (avgLoss > 0)) {
+      return const Duration(minutes: 1);
+    }
+    return result;
   }
 
-  /// ETA (minutes) to reach 14% based on current slope.
-  double? get _etaMinutes {
-    final slope = _estimateSlopePerMin();
-    if (slope == null || slope >= -1e-6) return null; // need negative slope
-    final delta = (_moisture - _targetMc);
-    if (delta <= 0) return 0.0;
-    return delta / (-slope);
-  }
-
+  // ---------------------- Confirm dialog ----------------------
   Future<void> _confirm({
     required String title,
     required String message,
@@ -234,57 +267,76 @@ class _AutomationPageState extends State<AutomationPage>
       ),
     );
   }
-    Future<void> _handleBluetoothData(MethodCall call) async {
-        if (call.method == "onDataReceived") {
-          final String data = call.arguments.toString().trim();
-          print("📩 Native pushed: $data");
-          _parseDhtResponse(data);
-        }
-      }
-    Future<void> _sendCommand(String command) async {
-      try {
-        final response = await _bleChannel.invokeMethod<String>('sendData', {'data': command});
-        if (response == null) {
-          Fluttertoast.showToast(msg: "No response from ESP32");
-        } else {
-          print("📨 Got response: $response");
-          _parseDhtResponse(response);
-        }
-      } catch (e) {
-        Fluttertoast.showToast(msg: "Bluetooth error: $e");
-      }
+
+  // ---------------------- BLE helpers ----------------------
+  Future<void> _handleBluetoothData(MethodCall call) async {
+    if (call.method == "onDataReceived") {
+      final String data = call.arguments.toString().trim();
+      _parseDhtResponse(data);
     }
-    // ---------------------- Controls ----------------------
-    void _startStopwatch() {
-      setState(() {
-        _isRunning = true;
-        _isPaused = false;
-        _elapsed = Duration.zero;
-        _initialMc = _moisture;  // capture starting MC for progress
-        _mcHistory.clear();
-        _pushMcSample(_moisture);
-      });
+  }
 
-      AutomationPage.isActive.value = true;
-      AutomationPage.progress.value = _targetProgress;
+  Future<void> _sendCommand(String command) async {
+    try {
+      final response = await _bleChannel.invokeMethod<String>('sendData', {'data': command});
+      if (response != null) _parseDhtResponse(response);
+    } catch (e) {
+      Fluttertoast.showToast(msg: "Bluetooth error: $e");
+    }
+  }
 
-      _ticker?.cancel();
-      _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-        setState(() {
-          _elapsed += const Duration(seconds: 1);
-        });
-        AutomationPage.progress.value = _targetProgress;
-      });
-
-      _currentOpId = OperationHistory.instance.startOperation();
-      OperationHistory.instance.logReading(_currentOpId!, _moisture);
-
-      _sendCommand("ON1");
-      _sendCommand("ON2");
-      _sendCommand("ON3");
-      _sendCommand("ON4");
+  // ---------------------- Controls ----------------------
+  void _startStopwatch() {
+    // Validate inputs
+    if (_initialPreset == 0) {
+      Fluttertoast.showToast(msg: "Pick an initial MC preset first.");
+      return;
+    }
+    if (_targetMc < 9 || _targetMc > 14) {
+      Fluttertoast.showToast(msg: "Target MC must be between 9% and 14%.");
+      return;
     }
 
+    final plan = _computePlanDuration();
+    if (plan == null) {
+      Fluttertoast.showToast(msg: "Cannot compute time estimate.");
+      return;
+    }
+
+    final preset = _presetRange(_initialPreset)!;
+    setState(() {
+      _isRunning = true;
+      _isPaused = false;
+      _elapsed = Duration.zero;
+      _initialMc = preset.mid;       // midpoint for logging
+      _plannedDuration = plan;
+      _mcHistory.clear();
+      _pushMcSample(_initialMc!);
+    });
+
+    AutomationPage.isActive.value = true;
+    AutomationPage.progress.value = _timeProgress;
+
+    _ticker?.cancel();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!_isRunning) return;
+      setState(() => _elapsed += const Duration(seconds: 1));
+      AutomationPage.progress.value = _timeProgress;
+
+      // Auto-complete when time is up
+      if (_plannedDuration != null && _elapsed >= _plannedDuration! && _isRunning) {
+        _stopStopwatch();
+      }
+    });
+
+    _currentOpId = OperationHistory.instance.startOperation();
+    OperationHistory.instance.logReading(_currentOpId!, _moisture);
+
+    _sendCommand("ON1");
+    _sendCommand("ON2");
+    _sendCommand("ON3");
+    _sendCommand("ON4");
+  }
 
   void _pauseStopwatch() {
     _ticker?.cancel();
@@ -292,8 +344,8 @@ class _AutomationPageState extends State<AutomationPage>
       _isPaused = true;
       _isRunning = false;
     });
-    AutomationPage.isActive.value = true; // still “active” but paused
-    AutomationPage.progress.value = _targetProgress;
+    AutomationPage.isActive.value = true;
+    AutomationPage.progress.value = _timeProgress;
   }
 
   void _resumeStopwatch() {
@@ -303,15 +355,16 @@ class _AutomationPageState extends State<AutomationPage>
     });
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      setState(() {
-        _elapsed += const Duration(seconds: 1);
-      });
-      AutomationPage.progress.value = _targetProgress;
+      setState(() => _elapsed += const Duration(seconds: 1));
+      AutomationPage.progress.value = _timeProgress;
+
+      if (_plannedDuration != null && _elapsed >= _plannedDuration! && _isRunning) {
+        _stopStopwatch();
+      }
     });
   }
 
-// automation.dart
-  Future<void> _stopStopwatch() async {          // <-- async
+  Future<void> _stopStopwatch() async {
     _ticker?.cancel();
     setState(() {
       _elapsed = Duration.zero;
@@ -320,8 +373,18 @@ class _AutomationPageState extends State<AutomationPage>
     });
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
+
     if (_currentOpId != null) {
-      final id = _currentOpId!;
+      OperationHistory.instance.logReading(_currentOpId!, _moisture);
+      final op = OperationHistory.instance.endOperation(_currentOpId!);
+      if (op != null) {
+        try {
+          await OperationPersistence.save(op);
+          debugPrint('SAVE: success ${op.id}');
+        } catch (e, st) {
+          debugPrint('SAVE: failed $e\n$st');
+        }
+      }
       _currentOpId = null;
 
       OperationHistory.instance.logReading(id, _moisture);
@@ -341,6 +404,9 @@ class _AutomationPageState extends State<AutomationPage>
     final themeScope = ThemeScope.of(context);
     final cs = Theme.of(context).colorScheme;
 
+    TextStyle t(double sz, {FontWeight? w, Color? c}) =>
+        GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+
     return Scaffold(
       appBar: PageHeader(
         isDarkMode: themeScope.isDark,
@@ -352,11 +418,8 @@ class _AutomationPageState extends State<AutomationPage>
             final maxW = constraints.maxWidth;
             final bool isTablet = maxW >= 700;
             final double scale = _scaleForWidth(maxW);
-
-            // Content max width on wide screens
             final double contentMaxWidth = isTablet ? 860.0 : 600.0;
 
-            // Scaled sizes
             final double cardPad   = (16 * scale).clamp(12, 22).toDouble();
             final double tileMinH  = (140 * scale).clamp(120, 180).toDouble();
             final double timerSide = (maxW * (isTablet ? 0.55 : 0.75)).clamp(240, 520).toDouble();
@@ -366,7 +429,7 @@ class _AutomationPageState extends State<AutomationPage>
             final double timerText = (48 * scale).clamp(36, 64).toDouble();
 
             // Buttons
-            final ButtonStyle startStyle = ElevatedButton.styleFrom(
+            final ButtonStyle commenceStyle = ElevatedButton.styleFrom(
               backgroundColor: context.brand,
               foregroundColor: cs.onPrimary,
               elevation: 0,
@@ -402,10 +465,131 @@ class _AutomationPageState extends State<AutomationPage>
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
             );
 
-            // Typo helper
-            TextStyle t(double sz, {FontWeight? w, Color? c}) =>
-                GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+            // ───────── Planner Card (target + horizontal preset buttons) ─────────
+            Widget plannerCard() {
+              return Card(
+                child: Padding(
+                  padding: EdgeInsets.all(cardPad),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text("Plan Drying Session",
+                          style: t((16 * scale).clamp(14, 20).toDouble(),
+                              w: FontWeight.w700, c: context.brand)),
+                      const SizedBox(height: 12),
 
+                      // Target MC
+                      Text("Target moisture content", style: t(13, w: FontWeight.w600)),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Slider(
+                              value: _targetMc,
+                              min: 9,
+                              max: 14,
+                              divisions: 10,
+                              label: "${_targetMc.toStringAsFixed(1)}%",
+                              onChanged: (v) => _setTargetMc(v),
+                            ),
+                          ),
+                          SizedBox(
+                            width: 70,
+                            child: Text("${_targetMc.toStringAsFixed(1)}%",
+                                textAlign: TextAlign.end, style: t(14, w: FontWeight.w700)),
+                          ),
+                        ],
+                      ),
+                      Text(_targetTip(_targetMc),
+                          style: t(12, c: cs.onSurface.withOpacity(0.75))),
+                      const SizedBox(height: 12),
+
+                      Text("Estimated initial moisture (choose one)",
+                          style: t(13, w: FontWeight.w600)),
+                      const SizedBox(height: 8),
+
+                      // Three equal-width preset buttons in a single horizontal row
+                      LayoutBuilder(builder: (ctx, c) {
+                        return Row(
+                          children: [
+                            Expanded(child: _presetButton(
+                              selected: _initialPreset == 1,
+                              onTap: () => _pickPreset(1),
+                              percent: "20–25%",
+                              caption: "on-time, safely threshed",
+                            )),
+                            const SizedBox(width: 8),
+                            Expanded(child: _presetButton(
+                              selected: _initialPreset == 2,
+                              onTap: () => _pickPreset(2),
+                              percent: "26–30%",
+                              caption: "early harvest (too wet)",
+                            )),
+                            const SizedBox(width: 8),
+                            Expanded(child: _presetButton(
+                              selected: _initialPreset == 3,
+                              onTap: () => _pickPreset(3),
+                              percent: "15–19%",
+                              caption: "late harvest (too dry)",
+                            )),
+                          ],
+                        );
+                      }),
+
+                      const SizedBox(height: 12),
+
+                      // Planned duration preview (based on selection)
+                      Builder(builder: (_) {
+                        final d = _computePlanDuration();
+                        String label;
+                        if (d == null) {
+                          label = "Pick a preset to preview the estimate.";
+                        } else if (d == Duration.zero) {
+                          label = "Initial MC is already at/below target — no time needed.";
+                        } else {
+                          final h = d.inHours;
+                          final m = d.inMinutes.remainder(60);
+                          final s = d.inSeconds.remainder(60);
+                          label = "Estimated drying time: ${h > 0 ? "${h}h " : ""}${m}m ${s}s";
+                        }
+                        return Text(label, style: t(12, c: cs.onSurface.withOpacity(0.75)));
+                      }),
+
+                      const SizedBox(height: 14),
+
+                      // Commence session button (the only Start button)
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              style: commenceStyle,
+                              onPressed: () {
+                                if (_isRunning) {
+                                  Fluttertoast.showToast(
+                                      msg: "Session is ongoing, stop first to restart");
+                                  return;
+                                }
+                                _confirm(
+                                  title: "Commence Session",
+                                  message: "Begin drying using the estimated time?",
+                                  onConfirm: () {
+                                    Fluttertoast.showToast(msg: "Session started");
+                                    _startStopwatch();
+                                  },
+                                );
+                              },
+                              child: Text("Commence session",
+                                  style: t(14, w: FontWeight.w700, c: cs.onPrimary)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            // Metrics card
             Widget metricRow() {
               return Row(
                 children: [
@@ -432,40 +616,9 @@ class _AutomationPageState extends State<AutomationPage>
               );
             }
 
-            Widget etaBadge() {
-              final eta = _etaMinutes;
-              String txt;
-              if (eta == null) {
-                txt = "Estimating…";
-              } else if (eta <= 0) {
-                txt = "At/Below 14%";
-              } else if (eta < 60) {
-                txt = "~${eta.ceil()} min remaining";
-              } else {
-                final h = (eta / 60).floor();
-                final m = (eta % 60).ceil();
-                txt = "~${h}h ${m}m remaining";
-              }
-              return Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: (10 * scale).clamp(8, 14).toDouble(),
-                  vertical: (6 * scale).clamp(4, 10).toDouble(),
-                ),
-                decoration: BoxDecoration(
-                  color: cs.secondaryContainer,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  txt,
-                  style: t((12 * scale).clamp(11, 15).toDouble(),
-                      w: FontWeight.w700, c: cs.onSecondaryContainer),
-                ),
-              );
-            }
-
-            final ringProgress = _targetProgress;       // drives arc completion
-            final colorProgress = ringProgress;         // drives color dark→light
-            final dotColor = _ringColor(colorProgress); // dot color
+            final ringProgress = _timeProgress;
+            final colorProgress = ringProgress;
+            final dotColor = _ringColor(colorProgress);
 
             // ------------------ Layout ------------------
             return Align(
@@ -476,7 +629,9 @@ class _AutomationPageState extends State<AutomationPage>
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      // ───────── Metrics Card ─────────
+                      plannerCard(),
+                      const SizedBox(height: 14),
+
                       Card(
                         child: Padding(
                           padding: EdgeInsets.all(cardPad),
@@ -486,8 +641,8 @@ class _AutomationPageState extends State<AutomationPage>
 
                       const SizedBox(height: 14),
 
-                      // ───────── Session Tracker Card ─────────
-                      Card(
+                      // Session Tracker Card — only shows timer once session started/paused
+                      if (_isRunning || _isPaused) Card(
                         child: Padding(
                           padding: EdgeInsets.all(cardPad),
                           child: Column(
@@ -496,17 +651,28 @@ class _AutomationPageState extends State<AutomationPage>
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(
-                                    "Session Tracker",
-                                    style: t((16 * scale).clamp(14, 20).toDouble(),
-                                        w: FontWeight.w700, c: context.brand),
-                                  ),
-                                  etaBadge(),
+                                  Text("Session Tracker",
+                                      style: t((16 * scale).clamp(14, 20).toDouble(),
+                                          w: FontWeight.w700, c: context.brand)),
+                                  if (_etaLabel.isNotEmpty)
+                                    Container(
+                                      padding: EdgeInsets.symmetric(
+                                        horizontal: (10 * scale).clamp(8, 14).toDouble(),
+                                        vertical: (6 * scale).clamp(4, 10).toDouble(),
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: cs.secondaryContainer,
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: Text(_etaLabel,
+                                          style: t((12 * scale).clamp(11, 15).toDouble(),
+                                              w: FontWeight.w700,
+                                              c: cs.onSecondaryContainer)),
+                                    ),
                                 ],
                               ),
                               const SizedBox(height: 12),
 
-                              // Circular progress based on target progress
                               LayoutBuilder(builder: (_, __) {
                                 final double side = timerSide;
                                 return SizedBox(
@@ -525,7 +691,6 @@ class _AutomationPageState extends State<AutomationPage>
                                           color: _ringColor(colorProgress),
                                         ),
                                       ),
-                                      // Moving dot at the tip of the arc
                                       Transform.rotate(
                                         angle: 2 * math.pi * ringProgress,
                                         child: Align(
@@ -547,22 +712,16 @@ class _AutomationPageState extends State<AutomationPage>
                                           ),
                                         ),
                                       ),
-                                      // Center readout
                                       Column(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
-                                          Text(
-                                            _fmtTime(_elapsed),
-                                            style: t(timerText, w: FontWeight.w800),
-                                          ),
+                                          Text(_fmtTime(_elapsed),
+                                              style: t(timerText, w: FontWeight.w800)),
                                           SizedBox(height: (6 * scale).clamp(4, 10).toDouble()),
-                                          Text(
-                                            _initialMc == null
-                                                ? "— / ${_targetMc.toStringAsFixed(0)}% MC"
-                                                : "${_moisture.toStringAsFixed(1)}% RH",
-                                            style: t((14 * scale).clamp(12, 18).toDouble(),
-                                                w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
-                                          ),
+                                          Text("Target ${_targetMc.toStringAsFixed(1)}% MC",
+                                              style: t((14 * scale).clamp(12, 18).toDouble(),
+                                                  w: FontWeight.w600,
+                                                  c: cs.onSurface.withOpacity(0.8))),
                                         ],
                                       ),
                                     ],
@@ -571,7 +730,7 @@ class _AutomationPageState extends State<AutomationPage>
                               }),
 
                               SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
-                              _controlsRow(startStyle, pauseResumeStyle, stopStyle, t),
+                              _controlsRow(pauseResumeStyle, stopStyle, t),
                             ],
                           ),
                         ),
@@ -587,40 +746,15 @@ class _AutomationPageState extends State<AutomationPage>
     );
   }
 
-  Future<void> _readMoistureSensor() async {
-      try {
-        final response = await _bleChannel.invokeMethod<String>('sendData', {'data': 'GET_MOISTURE'});
-        if (response != null && response.startsWith("MOISTURE:")) {
-          final raw = response.replaceFirst("MOISTURE:", "").trim();
-          final value = double.tryParse(raw);
-          if (value != null) {
-            // Convert to percent (if needed); depends on your calibration
-            final percent = 100 - (value / 4095.0 * 100);
-            setState(() {
-              _moisture = percent.clamp(0, 100);
-            });
-          }
-        }
-      } catch (e) {
-        Fluttertoast.showToast(msg: "Failed to read moisture: $e");
-      }
-    }
-
-    // ------- Controls Row -------
+  // ------- Controls Row (no Commence here—only Pause/Resume + Stop) -------
   Widget _controlsRow(
-      ButtonStyle startStyle,
-      ButtonStyle pauseResumeStyle,
-      ButtonStyle stopStyle,
-      TextStyle Function(double, {FontWeight? w, Color? c}) t,
-      ) {
+    ButtonStyle pauseResumeStyle,
+    ButtonStyle stopStyle,
+    TextStyle Function(double, {FontWeight? w, Color? c}) t,
+  ) {
     Widget label(String text) => FittedBox(
       fit: BoxFit.scaleDown,
-      child: Text(
-        text,
-        maxLines: 1,
-        softWrap: false,
-        style: t(14, w: FontWeight.w700, c: Colors.white),
-      ),
+      child: Text(text, maxLines: 1, softWrap: false, style: t(14, w: FontWeight.w700, c: Colors.white)),
     );
 
     return Row(
@@ -653,27 +787,6 @@ class _AutomationPageState extends State<AutomationPage>
             child: label(_isPaused ? "Resume" : "Pause"),
           ),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: ElevatedButton(
-            style: startStyle,
-            onPressed: () {
-              if (_isRunning) {
-                Fluttertoast.showToast(msg: "Session is ongoing, stop first to restart");
-                return;
-              }
-              _confirm(
-                title: "Start Session",
-                message: "Start a new drying session?",
-                onConfirm: () {
-                  Fluttertoast.showToast(msg: "Session started");
-                  _startStopwatch();
-                },
-              );
-            },
-            child: label("Start"),
-          ),
-        ),
       ],
     );
   }
@@ -699,7 +812,7 @@ class _AutomationPageState extends State<AutomationPage>
         textBuilder: ({
           double? size,
           FontWeight? weight,
-          Color color = const Color(0x00000000), // sentinel; use onSurface if transparent
+          Color color = const Color(0x00000000),
           double? height,
           TextDecoration? deco,
         }) {
@@ -715,6 +828,51 @@ class _AutomationPageState extends State<AutomationPage>
       ),
     );
   }
+
+  // ------- Horizontal preset button -------
+  Widget _presetButton({
+    required bool selected,
+    required VoidCallback onTap,
+    required String percent,
+    required String caption, // non-bold
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected ? cs.primary : cs.surfaceVariant,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: selected ? cs.primary : cs.outline),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              percent,
+              style: GoogleFonts.poppins(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: selected ? cs.onPrimary : cs.onSurface,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              caption,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.w400, // not bold
+                color: selected ? cs.onPrimary.withOpacity(0.9) : cs.onSurface.withOpacity(0.8),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Metric tile (theme-aware)
@@ -725,11 +883,11 @@ class _MetricBox extends StatelessWidget {
   final Color border;
   final IconData icon;
   final TextStyle Function({
-  double? size,
-  FontWeight? weight,
-  Color color,
-  double? height,
-  TextDecoration? deco,
+    double? size,
+    FontWeight? weight,
+    Color color,
+    double? height,
+    TextDecoration? deco,
   }) textBuilder;
 
   const _MetricBox({
@@ -790,10 +948,10 @@ class _MetricBox extends StatelessWidget {
   }
 }
 
-// ───────────────────────────────── Painter (progress to target) ────────────────────────────────
+// ───────────────────── Painter (progress to target TIME) ─────────────────────
 class _TargetRingPainter extends CustomPainter {
   final BuildContext context;
-  final double progress; // 0.0 → 1.0 (toward target MC)
+  final double progress; // 0.0 → 1.0 (time progress)
   final double track;
   final double stroke;
   final Color color;
@@ -827,17 +985,18 @@ class _TargetRingPainter extends CustomPainter {
     canvas.drawCircle(center, radius, base);
 
     // Progress arc
-    final sweep = 2 * math.pi * progress;
+    final sweep = 2 * math.pi * progress.clamp(0.0, 1.0);
     final rect = Rect.fromCircle(center: center, radius: radius);
-
+    final startAngle = -math.pi / 2; // start at top
+    canvas.drawArc(rect, startAngle, sweep, false, progressPaint);
   }
 
   @override
   bool shouldRepaint(covariant _TargetRingPainter old) =>
       old.progress != progress ||
-          old.track != track ||
-          old.stroke != stroke ||
-          old.color != color;
+      old.track != track ||
+      old.stroke != stroke ||
+      old.color != color;
 }
 
 // Simple container for moisture history

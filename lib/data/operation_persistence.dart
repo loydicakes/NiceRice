@@ -14,6 +14,10 @@ import 'package:nice_rice/data/operation_models.dart';
 class OperationPersistence {
   static const _kLocalKey = 'operations';
 
+  // Guards for one-time login sync per app session
+  static bool _didAttachLoginSync = false;
+  static bool _didRunLoginSync = false;
+
   // 🔹 Save a finished operation.
   static Future<void> save(OperationRecord op) async {
     final user = FirebaseAuth.instance.currentUser;
@@ -129,6 +133,47 @@ class OperationPersistence {
 
     return col.snapshots().map((qs) =>
         qs.docs.map((d) => OperationRecord.fromMap(Map<String, dynamic>.from(d.data()))).toList());
+  }
+
+  // ---------- One-time local → cloud sync on first login ----------
+
+  /// Call this once (e.g., right after Firebase.initializeApp()).
+  /// The first time a user logs in, local ops are migrated to that user's Firestore.
+  static void attachOneTimeLoginSync({bool clearLocalAfter = true}) {
+    if (_didAttachLoginSync) return;
+    _didAttachLoginSync = true;
+
+    FirebaseAuth.instance.authStateChanges().listen((user) async {
+      if (user == null || _didRunLoginSync) return;
+      _didRunLoginSync = true;
+      await syncLocalToCloudAndOptionallyClear(clearLocalAfter: clearLocalAfter);
+    });
+  }
+
+  /// Performs the migration of local operations to Firestore for the current user.
+  static Future<void> syncLocalToCloudAndOptionallyClear({
+    bool clearLocalAfter = true,
+  }) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+
+    final localOps = await loadLocal();
+    if (localOps.isEmpty) return;
+
+    debugPrint('🔄 Syncing ${localOps.length} local ops to cloud for uid=$uid');
+    for (final op in localOps) {
+      try {
+        await _saveToFirestore(uid, op);
+      } catch (e, st) {
+        debugPrint('⚠️ Sync failed for ${op.id}: $e\n$st');
+      }
+    }
+
+    if (clearLocalAfter) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_kLocalKey);
+      debugPrint('🧹 Cleared local operations after successful sync.');
+    }
   }
 
   // ---------- Debug helpers ----------

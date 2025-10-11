@@ -15,6 +15,7 @@ class PageHeader extends StatefulWidget implements PreferredSizeWidget {
     this.profileIconSize = 18,
     this.isDarkMode = false,
     this.onThemeChanged,
+    this.topBezelPadding = 20, // NEW: add space above the title row
   });
 
   final double logoScale;
@@ -23,11 +24,14 @@ class PageHeader extends StatefulWidget implements PreferredSizeWidget {
   final bool isDarkMode;
   final ValueChanged<bool>? onThemeChanged;
 
+  /// Extra top padding inside the AppBar (useful for phone bezel/notch).
+  final double topBezelPadding;
+
   @override
   State<PageHeader> createState() => _PageHeaderState();
 
   @override
-  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  Size get preferredSize => Size.fromHeight(kToolbarHeight + topBezelPadding); // NEW
 }
 
 class _PageHeaderState extends State<PageHeader> {
@@ -41,8 +45,8 @@ class _PageHeaderState extends State<PageHeader> {
     final u = _user;
     if (u == null) return null;
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users').doc(u.uid).get();
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(u.uid).get();
       final data = doc.data();
       final first = (data?['firstName'] as String?)?.trim();
       if (first != null && first.isNotEmpty) return first;
@@ -162,7 +166,10 @@ class _PageHeaderState extends State<PageHeader> {
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
-      toolbarHeight: kToolbarHeight,
+
+      // NEW: increase usable height so we can add real top space inside
+      toolbarHeight: kToolbarHeight + widget.topBezelPadding,
+
       systemOverlayStyle:
           (isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
               .copyWith(
@@ -170,8 +177,11 @@ class _PageHeaderState extends State<PageHeader> {
             theme.appBarTheme.backgroundColor ?? theme.scaffoldBackgroundColor,
       ),
       titleSpacing: 0,
+
+      // NEW: push the title row down by topBezelPadding without affecting baseline
       title: SafeArea(
         bottom: false,
+        minimum: EdgeInsets.only(top: widget.topBezelPadding),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 8),
           child: Row(
@@ -183,7 +193,8 @@ class _PageHeaderState extends State<PageHeader> {
                   height: logoBox,
                   child: Transform.scale(
                     scale: widget.logoScale,
-                    child: Image.asset('assets/images/2.png', fit: BoxFit.contain),
+                    child:
+                        Image.asset('assets/images/2.png', fit: BoxFit.contain),
                   ),
                 ),
               ),
@@ -204,9 +215,11 @@ class _PageHeaderState extends State<PageHeader> {
           ),
         ),
       ),
+
       actions: [
         SafeArea(
           bottom: false,
+          minimum: EdgeInsets.only(top: widget.topBezelPadding), // align with title
           child: CompositedTransformTarget(
             key: _profileTargetKey,
             link: _profileLink,
@@ -235,9 +248,11 @@ class _PageHeaderState extends State<PageHeader> {
                       alignment: Alignment.center,
                       child: signedIn && photo != null
                           ? null
-                          : Icon(Icons.person,
+                          : Icon(
+                              Icons.person,
                               color: context.brand,
-                              size: widget.profileIconSize.clamp(16, 20)),
+                              size: widget.profileIconSize.clamp(16, 20),
+                            ),
                     );
                   },
                 ),
@@ -274,8 +289,8 @@ class _ProfilePanelState extends State<_ProfilePanel> {
     final u = _user;
     if (u == null) return "Hello, Farmer!";
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users').doc(u.uid).get();
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(u.uid).get();
       final data = doc.data();
       final first = (data?['firstName'] as String?)?.trim();
       if (first != null && first.isNotEmpty) return "Hello, $first!";
@@ -291,14 +306,12 @@ class _ProfilePanelState extends State<_ProfilePanel> {
 
   void _goLogin() {
     widget.onClose();
-    Navigator.of(context, rootNavigator: true)
-        .pushReplacementNamed('/login');
+    Navigator.of(context, rootNavigator: true).pushReplacementNamed('/login');
   }
 
   void _goRegister() {
     widget.onClose();
-    Navigator.of(context, rootNavigator: true)
-        .pushReplacementNamed('/signup');
+    Navigator.of(context, rootNavigator: true).pushReplacementNamed('/signup');
   }
 
   Future<void> _logout() async {

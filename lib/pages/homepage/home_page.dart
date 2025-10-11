@@ -1,13 +1,14 @@
 // lib/pages/homepage/home_page.dart
 import 'dart:async';
 import 'dart:io';
-import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart';
+// NEW: read drying progress from Automation page
+import 'package:nice_rice/pages/automation/automation.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -20,25 +21,35 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   @override
   bool get wantKeepAlive => true;
 
-  // Fake sensor stream
-  final _rand = Random();
+  // Timers
   Timer? _sensorTimer;
   Timer? _clockTimer;
 
-  // live values
-  double _tempC = 60;
-  double _humidity = 38;
-  double _moisture = 15;
+  // Live sensor values (DHT)
+  double _tempC = 0;
+  double _humidity = 0;
 
-  // rolling history
-  final List<double> _moistureHistory = [];
-  static const int _historyCap = 24;
+  // Estimated Moisture Content (placeholder until we finalize EMC logic)
+  double? _estMc; // null means "not computed yet"
 
-  // platform channel (no plugins, no gradle changes)
-  static const MethodChannel _bleChannel =
-  MethodChannel('app.bluetooth/controls');
+  // Storage status
+  String _storageStatus = ""; // intentionally blank for now
+
+  // Battery percentage (placeholder for now)
+  int _batteryPct = 76;
+
+  // Platform channel (no plugins, no gradle changes)
+  static const MethodChannel _bleChannel = MethodChannel('app.bluetooth/controls');
 
   bool _isConnecting = false;
+
+  IconData _batteryIcon(int percent) {
+    if (percent >= 80) return Icons.battery_full_rounded;
+    if (percent >= 60) return Icons.battery_6_bar_rounded;
+    if (percent >= 40) return Icons.battery_4_bar_rounded;
+    if (percent >= 20) return Icons.battery_2_bar_rounded;
+    return Icons.battery_alert_rounded;
+  }
 
   @override
   void initState() {
@@ -46,19 +57,18 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
     // Register Bluetooth data handler
     _bleChannel.setMethodCallHandler(_handleBluetoothData);
-    for (int i = 0; i < 6; i++) {
-      final m = 13 + _rand.nextInt(6).toDouble();
-      _moistureHistory.add(m);
-    }
 
+    // Poll environment sensor every 3s
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      _sendCommand("GET_DHT");
-
-      _moisture = 13 + _rand.nextInt(6).toDouble();
+      _sendCommand("GET_DHT");      // expects: DHT:H=xx.x,T=yy.y
+      _sendCommand("GET_STATUS");   // reserve for storage status later
+      _sendCommand("GET_BAT");      // reserve for battery percent later
+      // TODO: once EMC math is ready, request/compute and set _estMc
+      // setState(() => _estMc = <computed value>);
     });
 
-
+    // Tick clock (for the header date/time)
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -71,30 +81,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     super.dispose();
   }
 
-  // Domain helpers
-  String _statusText(double m) {
-    if (m >= 13 && m <= 14) return "Safe";
-    if (m >= 15 && m <= 16) return "Warning";
-    if (m >= 17 && m <= 18) return "At risk";
-    return m < 13 ? "Safe" : "At risk";
-  }
-
-  Color _statusColor(String s) {
-    switch (s) {
-      case "Safe":
-        return const Color(0xFF46cc0d);
-      case "Warning":
-        return const Color(0xFFF9A825);
-      default:
-        return const Color(0xFFC62828);
-    }
-  }
-
-  double get _change {
-    if (_moistureHistory.length < 2) return 0;
-    return _moistureHistory.last - _moistureHistory.first;
-  }
-
+  // Formatting helpers
   String _formatDate(DateTime dt) {
     const months = [
       'January','February','March','April','May','June',
@@ -111,12 +98,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   TextStyle _textStyle(
-      BuildContext context, {
-        double? size,
-        FontWeight? weight,
-        Color? color,
-        double? height,
-      }) =>
+    BuildContext context, {
+    double? size,
+    FontWeight? weight,
+    Color? color,
+    double? height,
+  }) =>
       GoogleFonts.poppins(
         fontSize: size,
         fontWeight: weight,
@@ -126,40 +113,36 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25).toDouble();
 
+  // ─── BLE: send + parse ─────────────────────────────────────────────────────
   Future<void> _sendCommand(String command) async {
     try {
       final response = await _bleChannel.invokeMethod<String>('sendData', {'data': command});
       if (response != null) {
-        print("📨 Got response: $response");
-        _parseDhtResponse(response);
-      } else {
-        print("⚠️ No response from ESP32");
+        _parseBleResponse(response);
       }
     } catch (e) {
-      print("❌ Bluetooth error: $e");
+      debugPrint("❌ Bluetooth error: $e");
     }
   }
 
   Future<void> _handleBluetoothData(MethodCall call) async {
     if (call.method == "onDataReceived") {
       final String data = call.arguments.toString().trim();
-      print("📩 Native pushed: $data");
-      _parseDhtResponse(data);
+      _parseBleResponse(data);
     }
   }
-  void _parseDhtResponse(String rawData) {
+
+  void _parseBleResponse(String rawData) {
     final lines = rawData.split(RegExp(r'[\r\n]+'));
     for (final line in lines) {
       final data = line.trim();
       if (data.isEmpty) continue;
 
-      print("📨 Processing line: $data");
-
+      // DHT parser: "DHT:H=38.2,T=27.5"
       if (data.startsWith("DHT:")) {
         final payload = data.replaceFirst("DHT:", "");
         final parts = payload.split(',');
         double? h, t;
-
         for (final part in parts) {
           final kv = part.split('=');
           if (kv.length == 2) {
@@ -169,16 +152,31 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
             if (key == 'T') t = val;
           }
         }
-
         if (h != null && t != null) {
           setState(() {
             _humidity = h!;
             _tempC = t!;
           });
-          print("🟢 Updated HomePage → H: $_humidity%, T: $_tempC°C");
-        } else {
-          print("⚠️ Could not parse H/T");
         }
+        continue;
+      }
+
+      // Storage status placeholder (shape TBD). Example: "STATUS:Safe"
+      if (data.startsWith("STATUS:")) {
+        final txt = data.replaceFirst("STATUS:", "").trim();
+        setState(() {
+          _storageStatus = txt; // may still be "", which is fine for now
+        });
+        continue;
+      }
+
+      // Battery parser (shape TBD). Example: "BAT:76"
+      if (data.startsWith("BAT:")) {
+        final v = int.tryParse(data.replaceFirst("BAT:", "").trim());
+        if (v != null) {
+          setState(() => _batteryPct = v.clamp(0, 100));
+        }
+        continue;
       }
     }
   }
@@ -198,7 +196,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         _toast('Bluetooth is still OFF.');
         return;
       }
-      // Fetch bonded first (fast), then do a short discovery and merge results.
+
       final bonded = await _bleChannel.invokeMethod<List<dynamic>>('listBondedDevices') ?? [];
       final discovered = await _bleChannel.invokeMethod<List<dynamic>>('discoverDevices') ?? [];
 
@@ -218,7 +216,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   List<Map<String, String>> _mergeDevices(List<dynamic> a, List<dynamic> b) {
-    // Expect each item: { "name": "...", "address": "XX:XX:..." }
     final Map<String, Map<String, String>> byAddr = {};
     for (final src in [a, b]) {
       for (final it in src) {
@@ -227,14 +224,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           if (addr.isEmpty) continue;
           final name = (it['name'] ?? '').toString();
           byAddr.putIfAbsent(addr, () => {"name": name, "address": addr});
-          // prefer non-empty names
           if ((byAddr[addr]!["name"] ?? "").isEmpty && name.isNotEmpty) {
             byAddr[addr]!["name"] = name;
           }
         }
       }
     }
-    // sort: named first, then by name
     final list = byAddr.values.toList();
     list.sort((x, y) {
       final xn = (x["name"] ?? "").isEmpty ? "zzzz" : x["name"]!;
@@ -276,7 +271,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                           setState(() => _isConnecting = true);
                           final ok = await _bleChannel.invokeMethod<bool>('connect', {
                             'address': addr,
-                            'type': 'spp',       // <-- SPP for your ESP32 BluetoothSerial
+                            'type': 'spp',
                             'timeoutMs': 15000,
                           }) ?? false;
 
@@ -318,13 +313,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         child: LayoutBuilder(
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
-            final bool isCompact = maxW < 420;
             final bool isTablet = maxW >= 700;
             final scale = _scaleForWidth(maxW);
             final double contentMaxWidth = isTablet ? 800.0 : 600.0;
-
-            final status = _statusText(_moisture);
-            final statusColor = _statusColor(status);
 
             return Align(
               alignment: Alignment.topCenter,
@@ -334,7 +325,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      // Header card
+                      // ── Header card ──────────────────────────────────────
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -435,32 +426,21 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
                       const SizedBox(height: 14),
 
-                      // Drying Chamber
+                      // ── NEW: Device Battery card ─────────────────────────
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          child: Row(
                             children: [
-                              Row(
-                                children: [
-                                  Text(
-                                    "Drying Chamber",
-                                    style: _textStyle(context, size: (15 * scale).clamp(13, 18).toDouble(), weight: FontWeight.w700, color: context.brand),
-                                  ),
-                                  const Spacer(),
-                                  Text("%", style: _textStyle(context, size: (13 * scale).clamp(11, 16).toDouble(), weight: FontWeight.w600)),
-                                ],
+                              Text(
+                                "Device Battery",
+                                style: _textStyle(context,
+                                    size: (15 * scale).clamp(13, 18).toDouble(),
+                                    weight: FontWeight.w700,
+                                    color: context.brand),
                               ),
-                              const SizedBox(height: 10),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(20),
-                                child: LinearProgressIndicator(
-                                  value: 0.0,
-                                  minHeight: (10 * scale).clamp(8, 14).toDouble(),
-                                  backgroundColor: context.progressTrack,
-                                ),
-                              ),
+                              const Spacer(),
+                              _BatteryBadge(percent: _batteryPct, scale: scale),
                             ],
                           ),
                         ),
@@ -468,36 +448,112 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
                       const SizedBox(height: 14),
 
-                      // Storage Chamber
+                      // ── Drying Chamber (progress mirrors Automation timer) ─
+                      ValueListenableBuilder<double>(
+                        valueListenable: AutomationPage.progress,
+                        builder: (_, prog, __) {
+                          final pct = (prog * 100).clamp(0, 100);
+                          return Card(
+                            child: Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    crossAxisAlignment: CrossAxisAlignment.center,
+                                    children: [
+                                      Text(
+                                        "Drying Chamber",
+                                        style: _textStyle(context,
+                                            size: (15 * scale).clamp(13, 18).toDouble(),
+                                            weight: FontWeight.w700,
+                                            color: context.brand),
+                                      ),
+                                      const Spacer(),
+                                      // percent finished text at rightmost
+                                      Text(
+                                        "${pct.toStringAsFixed(0)}%",
+                                        style: _textStyle(context,
+                                            size: (14 * scale).clamp(12, 18).toDouble(),
+                                            weight: FontWeight.w800,
+                                            color: Theme.of(context).colorScheme.onSurface),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 10),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(20),
+                                    child: LinearProgressIndicator(
+                                      value: prog, // 0.0–1.0 from Automation page
+                                      minHeight: (10 * scale).clamp(8, 14).toDouble(),
+                                      backgroundColor: context.progressTrack,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+
+                      const SizedBox(height: 14),
+
+                      // ── Storage Chamber (now 4 tiles) ────────────────────
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  "Storage Chamber",
-                                  style: _textStyle(context, size: (16 * scale).clamp(14, 20).toDouble(), weight: FontWeight.w700, color: context.brand),
+                              Text(
+                                "Storage Chamber",
+                                style: _textStyle(
+                                  context,
+                                  size: (16 * scale).clamp(14, 20).toDouble(),
+                                  weight: FontWeight.w700,
+                                  color: context.brand,
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              GridView(
-                                shrinkWrap: true,
-                                physics: const NeverScrollableScrollPhysics(),
-                                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: isTablet ? 3 : 2,
-                                  crossAxisSpacing: 12,
+
+                              // 2x2 grid on phones, 4 in a row on wide screens
+                              LayoutBuilder(builder: (ctx, box) {
+                                final isWide = box.maxWidth >= 520;
+                                return GridView.count(
+                                  crossAxisCount: isWide ? 4 : 2,
                                   mainAxisSpacing: 12,
-                                  childAspectRatio: isTablet ? 1.18 : (isCompact ? 0.95 : 1.05),
-                                ),
-                                children: [
-                                  _MetricTile(icon: Icons.thermostat_outlined, label: "Temperature", value: "${_tempC.toStringAsFixed(0)}ºC", scale: scale),
-                                  _MetricTile(icon: Icons.water_drop_outlined, label: "Humidity", value: "${_humidity.toStringAsFixed(0)}%", scale: scale),
-                                  _MetricTile(icon: Icons.eco_outlined, label: "Moisture Content", value: "${_moisture.toStringAsFixed(1)}%", scale: scale),
-                                  _StatusTile(status: status, color: statusColor, scale: scale),
-                                ],
-                              ),
+                                  crossAxisSpacing: 12,
+                                  shrinkWrap: true,
+                                  physics: const NeverScrollableScrollPhysics(),
+                                  children: [
+                                    _MiniMetricTile(
+                                      icon: Icons.thermostat_outlined,
+                                      label: "Temperature",
+                                      value: "${_tempC.toStringAsFixed(0)}ºC",
+                                      scale: scale,
+                                    ),
+                                    _MiniMetricTile(
+                                      icon: Icons.water_drop_outlined,
+                                      label: "Humidity",
+                                      value: "${_humidity.toStringAsFixed(0)}%",
+                                      scale: scale,
+                                    ),
+                                    // NEW: Estimated Moisture Content (leaf icon)
+                                    _MiniMetricTile(
+                                      icon: Icons.eco_outlined,
+                                      label: "Estimated Moisture",
+                                      value: _estMc == null
+                                          ? "--%"
+                                          : "${_estMc!.toStringAsFixed(0)}%",
+                                      scale: scale,
+                                    ),
+                                    _MiniStatusTile(
+                                      statusText: _storageStatus, // may be ""
+                                      scale: scale,
+                                    ),
+                                  ],
+                                );
+                              }),
                             ],
                           ),
                         ),
@@ -514,15 +570,15 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 }
 
-// Tiles (unchanged)
+// ───────────────────────────── Widgets ─────────────────────────────
 
-class _MetricTile extends StatelessWidget {
+class _MiniMetricTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
   final double scale;
 
-  const _MetricTile({
+  const _MiniMetricTile({
     required this.icon,
     required this.label,
     required this.value,
@@ -538,31 +594,36 @@ class _MetricTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: context.tileStroke),
       ),
-      padding: EdgeInsets.all((14 * scale).clamp(10, 18).toDouble()),
+      padding: EdgeInsets.all((16 * scale).clamp(12, 20).toDouble()),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: context.brand, size: (18 * scale).clamp(16, 22).toDouble()),
-          const SizedBox(height: 6),
+          Icon(
+            icon,
+            color: context.brand,
+            size: (22 * scale).clamp(18, 26).toDouble(), // bigger icon
+          ),
+          const SizedBox(height: 8),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
             child: Text(
               value,
               style: GoogleFonts.poppins(
-                fontSize: (28 * scale).clamp(22, 34).toDouble(),
+                fontSize: (36 * scale).clamp(28, 48).toDouble(), // much larger value text
                 fontWeight: FontWeight.w800,
                 color: cs.onSurface,
+                height: 1.0,
               ),
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
             label,
             style: GoogleFonts.poppins(
-              fontSize: (13 * scale).clamp(11, 16).toDouble(),
+              fontSize: (16 * scale).clamp(13, 20).toDouble(), // larger label text
               fontWeight: FontWeight.w600,
-              color: cs.onSurface,
+              color: cs.onSurface.withOpacity(0.9),
             ),
           ),
         ],
@@ -571,50 +632,107 @@ class _MetricTile extends StatelessWidget {
   }
 }
 
-class _StatusTile extends StatelessWidget {
-  final String status;
-  final Color color;
+class _MiniStatusTile extends StatelessWidget {
+  final String statusText; // may be blank for now
   final double scale;
 
-  const _StatusTile({
-    required this.status,
-    required this.color,
+  const _MiniStatusTile({
+    required this.statusText,
     this.scale = 1,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final bool isSafe = statusText.toLowerCase().contains("safe");
+    final Color statusColor = isSafe ? const Color(0xFF1DB954) : cs.onSurface;
+
     return Container(
       decoration: BoxDecoration(
         color: context.tileFill,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: context.tileStroke),
       ),
-      padding: EdgeInsets.all((14 * scale).clamp(10, 18).toDouble()),
+      padding: EdgeInsets.all((16 * scale).clamp(12, 20).toDouble()),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Icon(Icons.storage_outlined, color: color, size: (18 * scale).clamp(16, 22).toDouble()),
-          ),
+          Icon(Icons.storage_outlined,
+              color: context.brand,
+              size: (22 * scale).clamp(18, 26).toDouble()),
           const SizedBox(height: 8),
-          Text(
-            status,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: (20 * scale).clamp(16, 26).toDouble(),
-              fontWeight: FontWeight.w800,
-              color: color,
+          // No fixed-height box anymore → text can grow
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              statusText.isEmpty ? "--" : statusText,
+              style: GoogleFonts.poppins(
+                fontSize: (36 * scale).clamp(28, 48).toDouble(), // bigger status
+                fontWeight: FontWeight.w800,
+                color: statusColor,
+                height: 1.0,
+              ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
           Text(
             "Storage Status",
             style: GoogleFonts.poppins(
-              fontSize: (13 * scale).clamp(11, 16).toDouble(),
+              fontSize: (16 * scale).clamp(13, 20).toDouble(),
               fontWeight: FontWeight.w600,
+              color: cs.onSurface.withOpacity(0.9),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+
+class _BatteryBadge extends StatelessWidget {
+  final int percent;
+  final double scale;
+
+  const _BatteryBadge({required this.percent, this.scale = 1});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    IconData icon;
+    if (percent >= 80) {
+      icon = Icons.battery_full_rounded;
+    } else if (percent >= 60) {
+      icon = Icons.battery_6_bar_rounded;
+    } else if (percent >= 40) {
+      icon = Icons.battery_4_bar_rounded;
+    } else if (percent >= 20) {
+      icon = Icons.battery_2_bar_rounded;
+    } else {
+      icon = Icons.battery_alert_rounded;
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: (10 * scale).clamp(8, 12).toDouble(),
+        vertical: (6 * scale).clamp(4, 8).toDouble(),
+      ),
+      decoration: BoxDecoration(
+        color: cs.surfaceVariant,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: cs.outline.withOpacity(0.4)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: (16 * scale).clamp(14, 20).toDouble(), color: context.brand),
+          const SizedBox(width: 6),
+          Text(
+            "$percent%",
+            style: GoogleFonts.poppins(
+              fontSize: (12 * scale).clamp(11, 14).toDouble(),
+              fontWeight: FontWeight.w700,
               color: cs.onSurface,
             ),
           ),

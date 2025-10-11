@@ -236,6 +236,10 @@ class _AutomationPageState extends State<AutomationPage>
       _selectedBracket != null && _targetMc >= 9.0 && _targetMc <= 14.0;
 
   void _commenceSession() {
+      if (_isRunning) {
+    Fluttertoast.showToast(msg: "A session is already running.");
+    return;
+    }
     if (!_inputsComplete) return;
 
     final etaMin = _computeEtaMinutes();
@@ -582,7 +586,7 @@ class _AutomationPageState extends State<AutomationPage>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text("Pre-Session Setup",
+                              Text("Session Plan",
                                   style: t((16 * scale).clamp(14, 20).toDouble(),
                                       w: FontWeight.w700, c: context.brand)),
                               const SizedBox(height: 10),
@@ -594,7 +598,7 @@ class _AutomationPageState extends State<AutomationPage>
                               const SizedBox(height: 14),
                               ElevatedButton(
                                 style: commenceStyle,
-                                onPressed: _inputsComplete ? _commenceSession : null,
+                                onPressed: (_inputsComplete && !_isRunning) ? _commenceSession : null,
                                 child: Text("Commence Session",
                                     style: t(14, w: FontWeight.w700, c: cs.onPrimary)),
                               ),
@@ -714,9 +718,7 @@ class _AutomationPageState extends State<AutomationPage>
                                 );
                               }),
 
-                              // ── Moved metrics BELOW the timer ──
-                              SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
-                              metricRow(),
+                             
 
                               SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
                               // Controls: only Pause/Play and Stop while running
@@ -793,6 +795,8 @@ class _AutomationPageState extends State<AutomationPage>
                                   ),
                                 ],
                               ),
+                              SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
+                              metricRow(),
                             ],
                           ),
                         ),
@@ -807,6 +811,7 @@ class _AutomationPageState extends State<AutomationPage>
       ),
     );
   }
+
 
   // ------- Metric card wrapper -------
   Widget _metricCard({

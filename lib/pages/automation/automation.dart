@@ -84,7 +84,7 @@ class _AutomationPageState extends State<AutomationPage>
   Timer? _sensorTimer;
   final Random _rand = Random();
   double _humidity = 0.0;     // display label: Humidity
-  double _temperature = 27.0; // °C
+  double _temperature = 0.0; // °C
 
   // ---------------------- Target / Inputs ----------------------
   // Slider: 9% to 14% in 0.5 steps

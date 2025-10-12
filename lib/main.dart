@@ -2,7 +2,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:firebase_core/firebase_core.dart';
-
 import 'firebase_options.dart';
 
 // Screens
@@ -14,9 +13,10 @@ import 'pages/signup/signup.dart';
 
 import 'package:nice_rice/data/operation_persistence.dart';
 import 'tab.dart'; // AppShell (parent Scaffold that owns the header)
-
-// Theme controller
 import 'theme_controller.dart';
+
+// NEW
+import 'services/route_logger.dart';
 
 final ThemeController _theme = ThemeController();
 
@@ -42,8 +42,11 @@ class BootstrapApp extends StatelessWidget {
           darkTheme: AppThemes.dark(),
           themeMode: theme.mode,
 
-          // Start at Splash (does guarded auth routing)
+          // Start at Splash (it will now decide first-launch / auth / last-route)
           home: const SplashScreen(),
+
+          // Save last route automatically:
+          navigatorObservers: [RouteLogger()],
 
           // Centralized routes
           routes: {
@@ -55,7 +58,7 @@ class BootstrapApp extends StatelessWidget {
                   ModalRoute.of(ctx)?.settings.arguments as int?;
               return AppShell(initialIndex: initial ?? 0);
             },
-            '/home': (_) => const HomePage(), // if you still deep-link to it
+            '/home': (_) => const HomePage(),
           },
         );
       },

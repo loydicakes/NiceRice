@@ -12,6 +12,9 @@ import 'package:nice_rice/pages/homepage/home_page.dart';
 import 'package:nice_rice/pages/automation/automation.dart';
 import 'package:nice_rice/pages/analytics/analytics.dart';
 
+// NEW: remember last tab index
+import 'services/launch_prefs.dart';
+
 class AppShell extends StatefulWidget {
   /// 0 = Home, 1 = Automation, 2 = Analytics (if signed-in)
   final int initialIndex;
@@ -41,6 +44,21 @@ class _AppShellState extends State<AppShell> {
     _pageController = PageController(initialPage: _index);
     _authStream = FirebaseAuth.instance.authStateChanges();
     _user = FirebaseAuth.instance.currentUser;
+
+    // Restore last tab (async)
+    _restoreTab();
+  }
+
+  Future<void> _restoreTab() async {
+    final last = await LaunchPrefs.getLastTabIndex();
+    if (!mounted) return;
+    if (last != null) {
+      final clamped = _clampIndex(last);
+      // Jump without animation at startup for a snappy feel
+      _index = clamped;
+      _pageController.jumpToPage(clamped);
+      setState(() {});
+    }
   }
 
   @override
@@ -60,16 +78,19 @@ class _AppShellState extends State<AppShell> {
     return i;
   }
 
-  void _jumpTo(int i) {
+  // Jump (no animation) and persist
+  void _jumpTo(int i) async {
     final t = _clampIndex(i);
     _index = t;
     if (_pageController.hasClients) {
       _pageController.jumpToPage(t);
     }
     setState(() {});
+    await LaunchPrefs.saveLastTabIndex(t);
   }
 
-  void _onTapTab(int i) {
+  // Animate and persist
+  void _onTapTab(int i) async {
     final t = _clampIndex(i);
     setState(() => _index = t);
     _pageController.animateToPage(
@@ -77,6 +98,7 @@ class _AppShellState extends State<AppShell> {
       duration: const Duration(milliseconds: 260),
       curve: Curves.easeOutCubic,
     );
+    await LaunchPrefs.saveLastTabIndex(t);
   }
 
   @override
@@ -100,7 +122,7 @@ class _AppShellState extends State<AppShell> {
         // Keep a valid index when auth state changes
         if (_index >= _pages.length) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _jumpTo(_pages.length - 1);
+            _jumpTo(_pages.length - 1); // also persists
           });
         }
 
@@ -115,7 +137,10 @@ class _AppShellState extends State<AppShell> {
                 child: PageView(
                   controller: _pageController,
                   physics: const BouncingScrollPhysics(),
-                  onPageChanged: (i) => setState(() => _index = i),
+                  onPageChanged: (i) async {
+                    setState(() => _index = i);
+                    await LaunchPrefs.saveLastTabIndex(i); // persist swipe
+                  },
                   children: _pages,
                 ),
               ),

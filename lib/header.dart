@@ -6,6 +6,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:nice_rice/theme_controller.dart';
+import 'package:nice_rice/services/launch_prefs.dart';
+
 
 class PageHeader extends StatefulWidget implements PreferredSizeWidget {
   const PageHeader({
@@ -315,12 +317,27 @@ class _ProfilePanelState extends State<_ProfilePanel> {
   }
 
   Future<void> _logout() async {
+  // Close the popup first so we don’t leave an overlay behind
+  widget.onClose();
+
+  try {
     await FirebaseAuth.instance.signOut();
+    await LaunchPrefs.clearOnSignOut(); // clear last route & last tab cache
+  } catch (e) {
     if (mounted) {
-      Navigator.of(context, rootNavigator: true)
-          .pushNamedAndRemoveUntil('/landing', (r) => false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Sign out failed: $e')),
+      );
     }
   }
+
+  if (!mounted) return;
+
+  // Hard reset to login; no backstack to private pages
+  Navigator.of(context, rootNavigator: true)
+      .pushNamedAndRemoveUntil('/login', (r) => false);
+}
+
 
   void _editPhoto() {
     ScaffoldMessenger.of(context)

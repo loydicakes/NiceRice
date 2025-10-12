@@ -35,6 +35,7 @@ class PageHeader extends StatefulWidget implements PreferredSizeWidget {
 }
 
 class _PageHeaderState extends State<PageHeader> {
+
   final LayerLink _profileLink = LayerLink();
   final GlobalKey _profileTargetKey = GlobalKey();
   OverlayEntry? _profilePopup;
@@ -69,6 +70,14 @@ class _PageHeaderState extends State<PageHeader> {
   void _closeProfilePopup() {
     _profilePopup?.remove();
     _profilePopup = null;
+  }
+
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    // Match your existing pattern elsewhere
+    Navigator.of(context, rootNavigator: true)
+        .pushNamedAndRemoveUntil('/landing', (r) => false);
   }
 
   void _openProfilePopup() {

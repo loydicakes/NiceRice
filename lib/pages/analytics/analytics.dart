@@ -1244,49 +1244,63 @@ _AnalysisResult _analyzeOperation(OperationRecord op) {
   final r = op.readings;
   final n = r.length;
   final values = r.map((e) => e.value).toList();
+
+  // Stats
   final avg = values.reduce((a, b) => a + b) / n;
   final minV = values.reduce((a, b) => a < b ? a : b);
   final maxV = values.reduce((a, b) => a > b ? a : b);
   final first = values.first;
   final last = values.last;
   final delta = last - first;
+  final trend = delta.abs() < 1.0 ? 'stable' : (delta > 0 ? 'rising' : 'falling');
 
-  final trend =
-      delta.abs() < 1.0 ? 'stable' : (delta > 0 ? 'rising' : 'falling');
-
+  // Duration text
   final dur = op.duration;
   final durText = (dur == null)
       ? '—'
       : '${dur.inMinutes.remainder(60).toString().padLeft(2, '0')}:${dur.inSeconds.remainder(60).toString().padLeft(2, '0')}';
 
-  const low = 12.0;
-  const high = 18.0;
+  // Target moisture (from automation UI if provided)
+  double target = 13.5; // sensible default if not provided
+  try {
+    final maybe = (op as dynamic).targetMc as double?;
+    if (maybe != null && maybe > 0) target = maybe;
+  } catch (_) {}
 
-  final status = avg < low
-      ? _MoistureStatus.tooDry
-      : (avg > high ? _MoistureStatus.tooWet : _MoistureStatus.ok);
+  const tol = 1.0; // ±1% band is "near target"
+  final tgtLow = target - tol;
+  final tgtHigh = target + tol;
 
+  // Status relative to target
+  final status = avg < tgtLow
+      ? _MoistureStatus.tooDry       // over-drying risk
+      : (avg > tgtHigh ? _MoistureStatus.tooWet  // still too wet
+                       : _MoistureStatus.ok);     // near target
+
+  // Headlines (no "soil" wording)
   final headline = switch (status) {
-    _MoistureStatus.tooDry => 'Soil is DRY overall',
-    _MoistureStatus.ok => 'Moisture is within the target range',
-    _MoistureStatus.tooWet => 'Soil is TOO WET overall',
+    _MoistureStatus.tooDry => 'Batch may be OVER-DRY (below target)',
+    _MoistureStatus.ok     => 'Moisture is NEAR target',
+    _MoistureStatus.tooWet => 'Batch is ABOVE target (still too wet)',
   };
 
+  // Points shown under the headline
   final points = <String>[
-    'Average moisture: ${avg.toStringAsFixed(1)}%',
+    'Avg MC: ${avg.toStringAsFixed(1)}% (target ${target.toStringAsFixed(1)}% ±$tol%)',
     'Range: ${minV.toStringAsFixed(1)}% – ${maxV.toStringAsFixed(1)}%',
-    'Change Rate: $trend (Δ ${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}%)',
+    'Change rate: $trend (Δ ${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)}%)',
     'Duration: $durText',
     'Samples: $n',
   ];
 
+  // Recommendations aligned with your EMC control rules
   final recommendation = switch (status) {
     _MoistureStatus.tooDry =>
-        'Recommendation: Consider watering soon to lift moisture above $low%.',
+      'Recommendation: Risk of overdrying. Lower temperature and/or increase RH to raise EMC closer to target, or proceed to cool-down and discharge if MC is already acceptable for your preset.',
     _MoistureStatus.ok =>
-        'Recommendation: Conditions look good (target is $low–$high%). Maintain current routine.',
+      'Recommendation: Hold current settings. To finish, transition air so EMC is ~1–3% below target, then cool down (heater off, fans on) before discharge.',
     _MoistureStatus.tooWet =>
-        'Recommendation: Reduce watering or allow drying until moisture falls below $high%.',
+      'Recommendation: Increase temperature and/or decrease RH so EMC is below target (by ~1–3%) and continue drying with good airflow/mixing until near target.',
   };
 
   return _AnalysisResult(
@@ -1296,3 +1310,4 @@ _AnalysisResult _analyzeOperation(OperationRecord op) {
     recommendation: recommendation,
   );
 }
+

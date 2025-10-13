@@ -42,6 +42,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   bool _isConnecting = false;
 
+  // NEW: track connection state so we can flip the button to "Disconnect"
+  bool _isConnected = false;
+  String? _connectedName;
+  String? _connectedAddr;
+
   IconData _batteryIcon(int percent) {
     if (percent >= 80) return Icons.battery_full_rounded;
     if (percent >= 60) return Icons.battery_6_bar_rounded;
@@ -128,6 +133,15 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     if (call.method == "onDataReceived") {
       final String data = call.arguments.toString().trim();
       _parseBleResponse(data);
+    } else if (call.method == "onDisconnected") {
+      // Optional: if native layer notifies disconnection
+      if (!mounted) return;
+      setState(() {
+        _isConnected = false;
+        _connectedName = null;
+        _connectedAddr = null;
+      });
+      _toast('Device disconnected');
     }
   }
 
@@ -274,6 +288,14 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                             'timeoutMs': 15000,
                           }) ?? false;
 
+                          if (ok) {
+                            if (!mounted) return;
+                            setState(() {
+                              _isConnected = true;
+                              _connectedName = name;
+                              _connectedAddr = addr;
+                            });
+                          }
                           _toast(ok ? 'Connected to $name ($addr)' : 'Failed to connect to $name');
                         } on PlatformException catch (e) {
                           _toast('Connect error: ${e.message ?? e.code}');
@@ -292,6 +314,80 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     );
   }
 
+  Future<void> _onDisconnectPressed() async {
+    final confirm = await _showDisconnectConfirmDialog();
+    if (confirm != true) return;
+
+    try {
+      await _bleChannel.invokeMethod('disconnect'); // expects native side to handle gracefully
+    } catch (e) {
+      // Even if native throws, still flip the UI to disconnected so user can retry
+      debugPrint("❌ Disconnect error: $e");
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _isConnected = false;
+        _connectedName = null;
+        _connectedAddr = null;
+      });
+      _toast('Disconnected');
+    }
+  }
+
+  Future<bool?> _showDisconnectConfirmDialog() {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Disconnect",
+                  style: _textStyle(ctx, size: 20, weight: FontWeight.w800, color: cs.onSurface),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  "You are about to disconnect from the current device.",
+                  textAlign: TextAlign.center,
+                  style: _textStyle(ctx, size: 14, weight: FontWeight.w400, color: cs.onSurface.withOpacity(0.9)),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    TextButton(
+                      style: TextButton.styleFrom(
+                        foregroundColor: cs.onSurface,
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                      ),
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text("Cancel"),
+                    ),
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                      ),
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text("Confirm"),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _toast(String msg) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -302,6 +398,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     super.build(context);
     final theme = ThemeScope.of(context);
     final now = DateTime.now();
+
+    // Pale red for the "Disconnect" state
+    final Color paleRed = const Color(0xFFF28B82); // soft red (Google-ish)
+    final Color paleRedBorder = const Color(0xFFF28B82);
+    final Color paleRedText = const Color(0xFFD93025);
 
     return Scaffold(
       appBar: PageHeader(
@@ -345,75 +446,138 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                     ),
                                   ),
                                   const SizedBox(width: 16),
+
+                                  // MOVED: Stick the date/time/button block to the RIGHT
                                   Expanded(
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          _formatDate(now),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: _textStyle(
-                                            context,
-                                            size: (18 * _scaleForWidth(box.maxWidth)).clamp(14, 22).toDouble(),
-                                            weight: FontWeight.w700,
-                                            color: context.brand,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          _formatTime(now),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                          style: _textStyle(
-                                            context,
-                                            size: (14 * _scaleForWidth(box.maxWidth)).clamp(12, 18).toDouble(),
-                                            weight: FontWeight.w400,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 10),
-                                        Align(
-                                          alignment: Alignment.centerLeft,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(left: 40), // You can increase this to push it more
+                                        child: Align(
+                                          alignment: Alignment.centerRight,
                                           child: ConstrainedBox(
-                                            constraints: const BoxConstraints(minWidth: 120),
-                                            child: ElevatedButton(
-                                              style: ElevatedButton.styleFrom(
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
-                                                padding: EdgeInsets.symmetric(
-                                                  horizontal: 20,
-                                                  vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
+                                            constraints: BoxConstraints(
+                                              // keep a sensible max so the gap is visibly on the left
+                                              maxWidth: (box.maxWidth * 0.6).clamp(220, 480), // restrict width to push it in
+                                            ),
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  _formatDate(now),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: _textStyle(
+                                                    context,
+                                                    size: (18 * _scaleForWidth(box.maxWidth)).clamp(14, 22).toDouble(),
+                                                    weight: FontWeight.w700,
+                                                    color: context.brand,
+                                                  ),
                                                 ),
-                                              ),
-                                              onPressed: _isConnecting ? null : _onConnectPressed,
-                                              child: FittedBox(
-                                                fit: BoxFit.scaleDown,
-                                                child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    if (_isConnecting)
-                                                      Padding(
-                                                        padding: const EdgeInsets.only(right: 8.0),
-                                                        child: SizedBox(
-                                                          width: 16, height: 16,
-                                                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                                        ),
-                                                      ),
-                                                    Text(
-                                                      "Connect",
-                                                      style: _textStyle(
-                                                        context,
-                                                        size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
-                                                        weight: FontWeight.w700,
-                                                        color: Colors.white,
-                                                      ),
-                                                    ),
-                                                  ],
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  _formatTime(now),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: _textStyle(
+                                                    context,
+                                                    size: (14 * _scaleForWidth(box.maxWidth)).clamp(12, 18).toDouble(),
+                                                    weight: FontWeight.w400,
+                                                  ),
                                                 ),
-                                              ),
+                                                const SizedBox(height: 10),
+
+                                                // CONNECT / DISCONNECT BUTTON
+                                                Align(
+                                                  alignment: Alignment.centerLeft,
+                                                  child: ConstrainedBox(
+                                                    constraints: const BoxConstraints(minWidth: 140),
+                                                    child: _isConnected
+                                                        ? OutlinedButton(
+                                                            style: OutlinedButton.styleFrom(
+                                                              side: BorderSide(color: paleRedBorder, width: 1.6),
+                                                              backgroundColor: Colors.white,
+                                                              foregroundColor: paleRedText,
+                                                              shape: RoundedRectangleBorder(
+                                                                borderRadius: BorderRadius.circular(100),
+                                                              ),
+                                                              padding: EdgeInsets.symmetric(
+                                                                horizontal: 20,
+                                                                vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
+                                                              ),
+                                                            ),
+                                                            onPressed: _onDisconnectPressed,
+                                                            child: FittedBox(
+                                                              fit: BoxFit.scaleDown,
+                                                              child: Row(
+                                                                mainAxisSize: MainAxisSize.min,
+                                                                children: [
+                                                                  const Icon(Icons.link_off, size: 18),
+                                                                  const SizedBox(width: 8),
+                                                                  Text(
+                                                                    "Disconnect",
+                                                                    style: _textStyle(
+                                                                      context,
+                                                                      size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
+                                                                      weight: FontWeight.w700,
+                                                                      color: paleRedText,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          )
+                                                        : ElevatedButton(
+                                                            style: ElevatedButton.styleFrom(
+                                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                                                              padding: EdgeInsets.symmetric(
+                                                                horizontal: 20,
+                                                                vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
+                                                              ),
+                                                            ),
+                                                            onPressed: _isConnecting ? null : _onConnectPressed,
+                                                            child: FittedBox(
+                                                              fit: BoxFit.scaleDown,
+                                                              child: Row(
+                                                                mainAxisSize: MainAxisSize.min,
+                                                                children: [
+                                                                  if (_isConnecting)
+                                                                    Padding(
+                                                                      padding: const EdgeInsets.only(right: 8.0),
+                                                                      child: SizedBox(
+                                                                        width: 16, height: 16,
+                                                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                                                      ),
+                                                                    ),
+                                                                  const Icon(Icons.bluetooth, size: 18, color: Colors.white),
+                                                                  const SizedBox(width: 8),
+                                                                  Text(
+                                                                    "Connect",
+                                                                    style: _textStyle(
+                                                                      context,
+                                                                      size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
+                                                                      weight: FontWeight.w700,
+                                                                      color: Colors.white,
+                                                                    ),
+                                                                  ),
+                                                                ],
+                                                              ),
+                                                            ),
+                                                          ),
+                                                  ),
+                                                ),
+
+                                                if (_isConnected && (_connectedName?.isNotEmpty ?? false)) ...[
+                                                  const SizedBox(height: 6),
+                                                  Text(
+                                                    "Connected: $_connectedName",
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: _textStyle(context, size: 12, color: Colors.grey[700]),
+                                                  ),
+                                                ],
+                                              ],
                                             ),
                                           ),
                                         ),
-                                      ],
                                     ),
                                   ),
                                 ],
@@ -434,12 +598,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                               Text(
                                 "Device Battery",
                                 style: _textStyle(context,
-                                    size: (15 * scale).clamp(13, 18).toDouble(),
+                                    size: (15 * _scaleForWidth(constraints.maxWidth)).clamp(13, 18).toDouble(),
                                     weight: FontWeight.w700,
                                     color: context.brand),
                               ),
                               const Spacer(),
-                              _BatteryBadge(percent: _batteryPct, scale: scale),
+                              _BatteryBadge(percent: _batteryPct, scale: _scaleForWidth(constraints.maxWidth)),
                             ],
                           ),
                         ),
@@ -452,6 +616,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                         valueListenable: AutomationPage.progress,
                         builder: (_, prog, __) {
                           final pct = (prog * 100).clamp(0, 100);
+                          final scale = _scaleForWidth(constraints.maxWidth);
                           return Card(
                             child: Padding(
                               padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
@@ -507,7 +672,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                 "Storage Chamber",
                                 style: _textStyle(
                                   context,
-                                  size: (16 * scale).clamp(14, 20).toDouble(),
+                                  size: (16 * _scaleForWidth(constraints.maxWidth)).clamp(14, 20).toDouble(),
                                   weight: FontWeight.w700,
                                   color: context.brand,
                                 ),
@@ -519,7 +684,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                 final isWide = box.maxWidth >= 520;
                                 return GridView.count(
                                   crossAxisCount: isWide ? 4 : 2,
-                                  childAspectRatio: 1.05, // a touch taller tiles for safety
+                                  childAspectRatio: 1.05,
                                   mainAxisSpacing: 12,
                                   crossAxisSpacing: 12,
                                   shrinkWrap: true,
@@ -566,8 +731,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
 // ───────────────────────────── Widgets ─────────────────────────────
 
-/// Responsive metric tile: sizes content RELATIVE to the tile,
-/// guarantees no overflow and keeps padding minimal.
+/// Responsive metric tile
 class _MiniMetricTile extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -587,7 +751,6 @@ class _MiniMetricTile extends StatelessWidget {
 
     return LayoutBuilder(
       builder: (context, c) {
-        // Size text based on the tile's own box to avoid overflow
         final shortest = c.biggest.shortestSide;
         final double iconSize  = (shortest * 0.18).clamp(16, 28).toDouble();
         final double valueSize = (shortest * 0.32).clamp(22, 52).toDouble();
@@ -644,7 +807,7 @@ class _MiniMetricTile extends StatelessWidget {
   }
 }
 
-/// Responsive status tile with the same no-overflow behavior.
+/// Responsive status tile
 class _MiniStatusTile extends StatelessWidget {
   final String statusText; // may be blank for now
   final double scale;      // kept for API compatibility, not used for sizing

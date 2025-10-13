@@ -7,7 +7,6 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart';
-// NEW: read drying progress from Automation page
 import 'package:nice_rice/pages/automation/automation.dart';
 
 class HomePage extends StatefulWidget {
@@ -426,7 +425,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
                       const SizedBox(height: 14),
 
-                      // ── NEW: Device Battery card ─────────────────────────
+                      // ── Device Battery card ──────────────────────────────
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
@@ -470,7 +469,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                             color: context.brand),
                                       ),
                                       const Spacer(),
-                                      // percent finished text at rightmost
                                       Text(
                                         "${pct.toStringAsFixed(0)}%",
                                         style: _textStyle(context,
@@ -498,7 +496,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
                       const SizedBox(height: 14),
 
-                      // ── Storage Chamber (now 4 tiles) ────────────────────
+                      // ── Storage Chamber (4 tiles) ────────────────────────
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -521,6 +519,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                 final isWide = box.maxWidth >= 520;
                                 return GridView.count(
                                   crossAxisCount: isWide ? 4 : 2,
+                                  childAspectRatio: 1.05, // a touch taller tiles for safety
                                   mainAxisSpacing: 12,
                                   crossAxisSpacing: 12,
                                   shrinkWrap: true,
@@ -528,28 +527,23 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                   children: [
                                     _MiniMetricTile(
                                       icon: Icons.thermostat_outlined,
-                                      label: "Temperature",
+                                      label: "Temp",
                                       value: "${_tempC.toStringAsFixed(0)}ºC",
-                                      scale: scale,
                                     ),
                                     _MiniMetricTile(
                                       icon: Icons.water_drop_outlined,
                                       label: "Humidity",
                                       value: "${_humidity.toStringAsFixed(0)}%",
-                                      scale: scale,
                                     ),
-                                    // NEW: Estimated Moisture Content (leaf icon)
                                     _MiniMetricTile(
                                       icon: Icons.eco_outlined,
-                                      label: "Estimated Moisture",
+                                      label: "Moisture",
                                       value: _estMc == null
                                           ? "--%"
                                           : "${_estMc!.toStringAsFixed(0)}%",
-                                      scale: scale,
                                     ),
                                     _MiniStatusTile(
                                       statusText: _storageStatus, // may be ""
-                                      scale: scale,
                                     ),
                                   ],
                                 );
@@ -572,11 +566,13 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
 // ───────────────────────────── Widgets ─────────────────────────────
 
+/// Responsive metric tile: sizes content RELATIVE to the tile,
+/// guarantees no overflow and keeps padding minimal.
 class _MiniMetricTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-  final double scale;
+  final double scale; // kept for API compatibility, not used for sizing
 
   const _MiniMetricTile({
     required this.icon,
@@ -588,53 +584,70 @@ class _MiniMetricTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return Container(
-      decoration: BoxDecoration(
-        color: context.tileFill,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: context.tileStroke),
-      ),
-      padding: EdgeInsets.all((16 * scale).clamp(12, 20).toDouble()),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            icon,
-            color: context.brand,
-            size: (22 * scale).clamp(18, 26).toDouble(), // bigger icon
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        // Size text based on the tile's own box to avoid overflow
+        final shortest = c.biggest.shortestSide;
+        final double iconSize  = (shortest * 0.18).clamp(16, 28).toDouble();
+        final double valueSize = (shortest * 0.32).clamp(22, 52).toDouble();
+        final double labelSize = (shortest * 0.14).clamp(11, 20).toDouble();
+
+        return Container(
+          decoration: BoxDecoration(
+            color: context.tileFill,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: context.tileStroke),
           ),
-          const SizedBox(height: 8),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              style: GoogleFonts.poppins(
-                fontSize: (36 * scale).clamp(28, 48).toDouble(), // much larger value text
-                fontWeight: FontWeight.w800,
-                color: cs.onSurface,
-                height: 1.0,
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                icon,
+                color: context.brand,
+                size: iconSize,
               ),
-            ),
+              const Spacer(),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  style: GoogleFonts.poppins(
+                    fontSize: valueSize,
+                    fontWeight: FontWeight.w800,
+                    color: cs.onSurface,
+                    height: 1.0,
+                  ),
+                ),
+              ),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    fontSize: labelSize,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface.withOpacity(0.9),
+                    height: 1.05,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            style: GoogleFonts.poppins(
-              fontSize: (16 * scale).clamp(13, 20).toDouble(), // larger label text
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface.withOpacity(0.9),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
+/// Responsive status tile with the same no-overflow behavior.
 class _MiniStatusTile extends StatelessWidget {
   final String statusText; // may be blank for now
-  final double scale;
+  final double scale;      // kept for API compatibility, not used for sizing
 
   const _MiniStatusTile({
     required this.statusText,
@@ -644,52 +657,65 @@ class _MiniStatusTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final bool isSafe = statusText.toLowerCase().contains("safe");
-    final Color statusColor = isSafe ? const Color(0xFF1DB954) : cs.onSurface;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: context.tileFill,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: context.tileStroke),
-      ),
-      padding: EdgeInsets.all((16 * scale).clamp(12, 20).toDouble()),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.storage_outlined,
-              color: context.brand,
-              size: (22 * scale).clamp(18, 26).toDouble()),
-          const SizedBox(height: 8),
-          // No fixed-height box anymore → text can grow
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              statusText.isEmpty ? "--" : statusText,
-              style: GoogleFonts.poppins(
-                fontSize: (36 * scale).clamp(28, 48).toDouble(), // bigger status
-                fontWeight: FontWeight.w800,
-                color: statusColor,
-                height: 1.0,
+    return LayoutBuilder(
+      builder: (context, c) {
+        final shortest = c.biggest.shortestSide;
+        final double iconSize  = (shortest * 0.18).clamp(16, 28).toDouble();
+        final double valueSize = (shortest * 0.32).clamp(22, 52).toDouble();
+        final double labelSize = (shortest * 0.14).clamp(11, 20).toDouble();
+
+        final isSafe = statusText.toLowerCase().contains("safe");
+        final Color statusColor = isSafe ? const Color(0xFF1DB954) : cs.onSurface;
+
+        return Container(
+          decoration: BoxDecoration(
+            color: context.tileFill,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: context.tileStroke),
+          ),
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.storage_outlined, color: context.brand, size: iconSize),
+              const Spacer(),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  statusText.isEmpty ? "--" : statusText,
+                  maxLines: 1,
+                  style: GoogleFonts.poppins(
+                    fontSize: valueSize,
+                    fontWeight: FontWeight.w800,
+                    color: statusColor,
+                    height: 1.0,
+                  ),
+                ),
               ),
-            ),
+              Flexible(
+                child: Text(
+                  "Status",
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    fontSize: labelSize,
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface.withOpacity(0.9),
+                    height: 1.05,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 4),
-          Text(
-            "Storage Status",
-            style: GoogleFonts.poppins(
-              fontSize: (16 * scale).clamp(13, 20).toDouble(),
-              fontWeight: FontWeight.w600,
-              color: cs.onSurface.withOpacity(0.9),
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
 
+// ───────────────────────────── Battery Badge ─────────────────────────────
 
 class _BatteryBadge extends StatelessWidget {
   final int percent;

@@ -1,6 +1,7 @@
 package com.example.nice_rice
 
 import android.annotation.SuppressLint
+import android.app.Activity
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
@@ -25,7 +26,9 @@ class MainActivity : FlutterActivity() {
     private var gatt: BluetoothGatt? = null
     private var sppSocket: BluetoothSocket? = null
 
-
+    // ✅ Request code for Bluetooth enable
+    private val REQUEST_ENABLE_BT = 10001
+    private var methodResult: MethodChannel.Result? = null
 
     private val SPP_UUID: UUID =
         UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
@@ -36,17 +39,15 @@ class MainActivity : FlutterActivity() {
         val manager = getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         btAdapter = manager.adapter
 
-        // ✅ Assign the method channel properly here
         methodChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
 
-        // Ask runtime permissions once (simple example)
         requestBtPermissionsIfNeeded()
 
-        // ✅ Now set the handler on the initialized methodChannel
         methodChannel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "ensureBluetoothOn" -> {
-                    result.success(btAdapter.isEnabled)
+                    methodResult = result
+                    ensureBluetoothOn()
                 }
 
                 "listBondedDevices" -> {
@@ -108,6 +109,28 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // ✅ Legacy Bluetooth enable request (works with FlutterActivity)
+    private fun ensureBluetoothOn() {
+        if (!btAdapter.isEnabled) {
+            val enableBtIntent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            startActivityForResult(enableBtIntent, REQUEST_ENABLE_BT)
+        } else {
+            methodResult?.success(true)
+        }
+    }
+
+    // ✅ Handle result from system dialog
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_ENABLE_BT) {
+            if (resultCode == Activity.RESULT_OK) {
+                methodResult?.success(true)
+            } else {
+                methodResult?.success(false)
+            }
+        }
+    }
+
     private fun requestBtPermissionsIfNeeded() {
         if (Build.VERSION.SDK_INT >= 31) {
             ActivityCompat.requestPermissions(
@@ -119,7 +142,6 @@ class MainActivity : FlutterActivity() {
                 1001
             )
         } else {
-            // Pre-Android 12: scanning needs location
             ActivityCompat.requestPermissions(
                 this,
                 arrayOf(android.Manifest.permission.ACCESS_FINE_LOCATION),
@@ -128,13 +150,11 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ---- Discovery: Classic + BLE (single pass, merged) ---------------------
     @SuppressLint("MissingPermission")
     private fun discoverAllOnce(result: MethodChannel.Result) {
-        val out = mutableMapOf<String, MutableMap<String,String>>() // by address
+        val out = mutableMapOf<String, MutableMap<String, String>>()
         val handler = Handler(Looper.getMainLooper())
 
-        // 1) bonded devices
         try {
             btAdapter.bondedDevices.forEach { d ->
                 val addr = d.address ?: return@forEach
@@ -143,21 +163,19 @@ class MainActivity : FlutterActivity() {
             }
         } catch (_: SecurityException) {}
 
-        // 2) classic discovery
         val classicFilter = IntentFilter().apply {
             addAction(BluetoothDevice.ACTION_FOUND)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
         }
+
         val classicReceiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context?, intent: Intent?) {
-                when (intent?.action) {
-                    BluetoothDevice.ACTION_FOUND -> {
-                        val dev = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
-                        val addr = dev.address ?: return
-                        val name = dev.name ?: ""
-                        val entry = out.getOrPut(addr) { mutableMapOf("address" to addr, "name" to "") }
-                        if (entry["name"].isNullOrEmpty() && name.isNotEmpty()) entry["name"] = name
-                    }
+                if (intent?.action == BluetoothDevice.ACTION_FOUND) {
+                    val dev = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+                    val addr = dev.address ?: return
+                    val name = dev.name ?: ""
+                    val entry = out.getOrPut(addr) { mutableMapOf("address" to addr, "name" to "") }
+                    if (entry["name"].isNullOrEmpty() && name.isNotEmpty()) entry["name"] = name
                 }
             }
         }
@@ -183,11 +201,14 @@ class MainActivity : FlutterActivity() {
                 try { bleScanner.stopScan(bleCb) } catch (_: Exception) {}
                 try { unregisterReceiver(classicReceiver) } catch (_: Exception) {}
 
-                val list = out.values.map { mapOf("name" to (it["name"] ?: ""), "address" to (it["address"] ?: "")) }
-                    .sortedWith(compareBy(
+                val list = out.values.map {
+                    mapOf("name" to (it["name"] ?: ""), "address" to (it["address"] ?: ""))
+                }.sortedWith(
+                    compareBy(
                         { if ((it["name"] ?: "").isEmpty()) 1 else 0 },
                         { (it["name"] ?: "zzzz").lowercase(Locale.ROOT) }
-                    ))
+                    )
+                )
                 result.success(list)
             }, 4000)
         } catch (e: SecurityException) {
@@ -196,7 +217,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ---- BLE GATT connect (for completeness) --------------------------
     @SuppressLint("MissingPermission")
     private fun connectBle(address: String, timeoutMs: Int, result: MethodChannel.Result) {
         val device = btAdapter.getRemoteDevice(address)
@@ -234,7 +254,6 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    // ---- Classic SPP connect (for your ESP32 BluetoothSerial) ---------------
     @SuppressLint("MissingPermission")
     private fun connectSpp(address: String, timeoutMs: Int, result: MethodChannel.Result) {
         thread {
@@ -242,10 +261,9 @@ class MainActivity : FlutterActivity() {
                 val device = btAdapter.getRemoteDevice(address)
                 val sock = device.createRfcommSocketToServiceRecord(SPP_UUID)
                 btAdapter.cancelDiscovery()
-                sock.connect() // blocks; success => RFCOMM up
+                sock.connect()
                 sppSocket = sock
 
-                // 🔁 Start listening for incoming data (e.g., MOISTURE:xxxx)
                 thread {
                     val input = sock.inputStream
                     val reader = input.bufferedReader()
@@ -261,16 +279,17 @@ class MainActivity : FlutterActivity() {
                             }
                         }
                     } catch (_: Exception) {
-                        // Connection lost or read error
+                        // Connection lost or closed
                     }
                 }
-
 
                 runOnUiThread { result.success(true) }
             } catch (e: IOException) {
                 runOnUiThread { result.success(false) }
             } catch (e: SecurityException) {
-                runOnUiThread { result.error("perm", "Missing BLUETOOTH_CONNECT permission", e.message) }
+                runOnUiThread {
+                    result.error("perm", "Missing BLUETOOTH_CONNECT permission", e.message)
+                }
             }
         }
     }

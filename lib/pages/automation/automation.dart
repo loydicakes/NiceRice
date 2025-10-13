@@ -67,7 +67,7 @@ extension on InitialBracket {
 class _AutomationPageState extends State<AutomationPage>
     with AutomaticKeepAliveClientMixin {
   static final MethodChannel _bleChannel =
-  const MethodChannel('app.bluetooth/controls');
+      const MethodChannel('app.bluetooth/controls');
 
   @override
   bool get wantKeepAlive => true;
@@ -83,7 +83,7 @@ class _AutomationPageState extends State<AutomationPage>
   // ---------------------- Sensors ----------------------
   Timer? _sensorTimer;
   final Random _rand = Random();
-  double _humidity = 0.0;     // display label: Humidity
+  double _humidity = 0.0; // display label: Humidity
   double _temperature = 0.0; // °C
 
   // Pulse for listeners (e.g., initializing dialog) to repaint on every sensor read
@@ -104,11 +104,107 @@ class _AutomationPageState extends State<AutomationPage>
   static const Color _ringSingleColor = Color.fromARGB(255, 63, 252, 88); // green
 
   // ---------------------- Preheat / Init Gate ----------------------
-  static const double _preheatTempMin = 35.0;   // °C: ready when in 45–70°C
-  static const double _preheatTempMax = 70.0;   // °C ceiling for preheat band
+  static const double _preheatTempMin = 35.0; // °C: ready when in 45–70°C
+  static const double _preheatTempMax = 70.0; // °C ceiling for preheat band
 
-  bool _waitingForPreheat = false;  // true while the init dialog is open
-  bool _preheatReady = false;       // flips to true once thresholds are met
+  bool _waitingForPreheat = false; // true while the init dialog is open
+  bool _preheatReady = false; // flips to true once thresholds are met
+
+  // ---------------------- Bluetooth Readiness Helpers ----------------------
+  bool _assumeBtOnIfUnknown = false; // fallback if native side not implemented
+
+  Future<bool> _isBluetoothOn() async {
+    try {
+      final on = await _bleChannel.invokeMethod<bool>('isBluetoothOn');
+      if (on == null) return _assumeBtOnIfUnknown;
+      return on;
+    } catch (_) {
+      // If native method missing, be conservative and block start.
+      return false;
+    }
+  }
+
+  Future<bool> _isDeviceConnected() async {
+    try {
+      final ok = await _bleChannel.invokeMethod<bool>('isConnected');
+      return ok ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  void _goToHome() {
+  if (!mounted) return;
+  // Make AppShell(Home tab) the root so there's nothing to go "back" to.
+  Navigator.of(context).pushNamedAndRemoveUntil(
+    '/main',
+    (route) => false,
+    arguments: 0, // Home tab index
+  );
+}
+
+  Future<void> _showBluetoothRequiredDialog() async {
+  if (!mounted) return;
+  final cs = Theme.of(context).colorScheme;
+
+  await showDialog(
+    context: context,
+    barrierDismissible: true,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(
+        "Connect to NiceRice on Home",
+        style: GoogleFonts.poppins(fontWeight: FontWeight.w800),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // English
+          Text(
+            "Before starting, please enable Bluetooth and connect to your NiceRice device from the Home page.",
+            style: GoogleFonts.poppins(),
+          ),
+          const SizedBox(height: 8),
+          // Tagalog translation (smaller text)
+          Text(
+            "Bago magsimula, buksan ang Bluetooth at ikonekta ang NiceRice device sa Home page.",
+            style: GoogleFonts.poppins(
+              fontSize: 12,
+              color: cs.onSurface.withOpacity(0.75),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(),
+          child: Text("Cancel",
+              style: GoogleFonts.poppins(color: cs.primary)),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(ctx).pop();
+            _goToHome(); // routes to '/main' with index 0
+          },
+          child: Text("Go to Home",
+              style: GoogleFonts.poppins(color: cs.onPrimary)),
+        ),
+      ],
+    ),
+  );
+}
+
+  /// Gatekeeper called by Start button: ensures BT is ON and a device is connected.
+  Future<bool> _ensureBluetoothReadyOrExplain() async {
+    final on = await _isBluetoothOn();
+    final connected = await _isDeviceConnected();
+    if (!on || !connected) {
+      await _showBluetoothRequiredDialog();
+      return false;
+    }
+    return true;
+  }
 
   @override
   void initState() {
@@ -163,7 +259,7 @@ class _AutomationPageState extends State<AutomationPage>
   double get _progress {
     if (_sessionDuration.inSeconds <= 0) return 0.0;
     final done =
-    (_sessionDuration.inSeconds - _remaining.inSeconds).clamp(0, _sessionDuration.inSeconds);
+        (_sessionDuration.inSeconds - _remaining.inSeconds).clamp(0, _sessionDuration.inSeconds);
     return (done / _sessionDuration.inSeconds).clamp(0.0, 1.0);
   }
 
@@ -215,7 +311,7 @@ class _AutomationPageState extends State<AutomationPage>
             _humidity = h!;
             _temperature = t!;
           });
-          _sensorSeq.value++;           // tick listeners (e.g., dialog) to repaint with fresh values
+          _sensorSeq.value++; // tick listeners (e.g., dialog) to repaint with fresh values
           _maybeMarkPreheatReady();
         }
       }
@@ -255,7 +351,7 @@ class _AutomationPageState extends State<AutomationPage>
   Future<void> _sendCommand(String command) async {
     try {
       final response =
-      await _bleChannel.invokeMethod<String>('sendData', {'data': command});
+          await _bleChannel.invokeMethod<String>('sendData', {'data': command});
       if (response != null) {
         _parseDhtResponse(response);
       }
@@ -361,14 +457,16 @@ class _AutomationPageState extends State<AutomationPage>
       barrierDismissible: false,
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
-        TextStyle t(double sz,{FontWeight? w, Color? c}) =>
-            GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+        TextStyle t(double sz, {FontWeight? w, Color? c}) =>
+            GoogleFonts.poppins(
+                fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
 
         return ValueListenableBuilder<bool>(
           valueListenable: readyNotifier,
           builder: (ctx, isReady, _) {
             return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
@@ -384,7 +482,9 @@ class _AutomationPageState extends State<AutomationPage>
                       Text(
                         "Please wait for chamber to reach 45–70°C",
                         textAlign: TextAlign.center,
-                        style: t(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
+                        style: t(13,
+                            w: FontWeight.w600,
+                            c: cs.onSurface.withOpacity(0.8)),
                       ),
                       const SizedBox(height: 12),
 
@@ -418,7 +518,9 @@ class _AutomationPageState extends State<AutomationPage>
                       const SizedBox(height: 8),
                       Text(
                         "Target: temperature between 45°C and 70°C",
-                        style: t(12, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.7)),
+                        style: t(12,
+                            w: FontWeight.w600,
+                            c: cs.onSurface.withOpacity(0.7)),
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -431,21 +533,28 @@ class _AutomationPageState extends State<AutomationPage>
                                 _safeAllStop();
                                 Navigator.pop(ctx);
                               },
-                              child: Text("Cancel", style: t(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
+                              child: Text("Cancel",
+                                  style: t(14,
+                                      w: FontWeight.w700,
+                                      c: Theme.of(ctx).colorScheme.primary)),
                             ),
                           ),
                         ],
                       ),
                     ] else ...[
                       const SizedBox(height: 8),
-                      const Icon(Icons.check_circle, size: 44, color: Colors.green),
+                      const Icon(Icons.check_circle,
+                          size: 44, color: Colors.green),
                       const SizedBox(height: 16),
-                      Text("You may now put your grains", style: t(18, w: FontWeight.w800)),
+                      Text("You may now put your grains",
+                          style: t(18, w: FontWeight.w800)),
                       const SizedBox(height: 8),
                       Text(
                         "Chamber is ready.",
                         textAlign: TextAlign.center,
-                        style: t(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
+                        style: t(13,
+                            w: FontWeight.w600,
+                            c: cs.onSurface.withOpacity(0.8)),
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -458,7 +567,10 @@ class _AutomationPageState extends State<AutomationPage>
                                 _safeAllStop();
                                 Navigator.pop(ctx);
                               },
-                              child: Text("Cancel", style: t(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
+                              child: Text("Cancel",
+                                  style: t(14,
+                                      w: FontWeight.w700,
+                                      c: Theme.of(ctx).colorScheme.primary)),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -474,7 +586,9 @@ class _AutomationPageState extends State<AutomationPage>
                                 // 2) Start OUR session timer immediately (user action = source of truth)
                                 if (!_isRunning) _beginDrying();
                               },
-                              child: Text("Start Drying", style: t(14, w: FontWeight.w700, c: Colors.white)),
+                              child: Text("Start Drying",
+                                  style: t(14,
+                                      w: FontWeight.w700, c: Colors.white)),
                             ),
                           ),
                         ],
@@ -611,17 +725,19 @@ class _AutomationPageState extends State<AutomationPage>
             final double contentMaxWidth = isTablet ? 860.0 : 600.0;
 
             // Scaled sizes
-            final double cardPad   = (16 * scale).clamp(12, 22).toDouble();
-            final double tileMinH  = (140 * scale).clamp(120, 180).toDouble();
-            final double timerSide = (maxW * (isTablet ? 0.55 : 0.75)).clamp(240, 520).toDouble();
+            final double cardPad = (16 * scale).clamp(12, 22).toDouble();
+            final double tileMinH = (140 * scale).clamp(120, 180).toDouble();
+            final double timerSide =
+                (maxW * (isTablet ? 0.55 : 0.75)).clamp(240, 520).toDouble();
             final double ringTrack = (8 * scale).clamp(6, 12).toDouble();
-            final double ringStroke= (12 * scale).clamp(10, 16).toDouble();
-            final double dotSize   = (18 * scale).clamp(14, 24).toDouble();
-            final double bigText   = (48 * scale).clamp(36, 64).toDouble();
+            final double ringStroke = (12 * scale).clamp(10, 16).toDouble();
+            final double dotSize = (18 * scale).clamp(14, 24).toDouble();
+            final double bigText = (48 * scale).clamp(36, 64).toDouble();
 
             // Typo helper
             TextStyle t(double sz, {FontWeight? w, Color? c}) =>
-                GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+                GoogleFonts.poppins(
+                    fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
 
             // Buttons
             final ButtonStyle startStyle = ElevatedButton.styleFrom(
@@ -635,7 +751,8 @@ class _AutomationPageState extends State<AutomationPage>
                 vertical: (14 * scale).clamp(10, 18).toDouble(),
               ),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(100)),
             );
 
             final ButtonStyle pauseStyle = ElevatedButton.styleFrom(
@@ -646,7 +763,8 @@ class _AutomationPageState extends State<AutomationPage>
                   horizontal: (22 * scale).clamp(16, 28).toDouble(),
                   vertical: (14 * scale).clamp(10, 18).toDouble()),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(100)),
             );
 
             final ButtonStyle playStyle = ElevatedButton.styleFrom(
@@ -657,7 +775,8 @@ class _AutomationPageState extends State<AutomationPage>
                   horizontal: (22 * scale).clamp(16, 28).toDouble(),
                   vertical: (14 * scale).clamp(10, 18).toDouble()),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(100)),
             );
 
             final ButtonStyle stopStyle = ElevatedButton.styleFrom(
@@ -668,7 +787,8 @@ class _AutomationPageState extends State<AutomationPage>
                   horizontal: (22 * scale).clamp(16, 28).toDouble(),
                   vertical: (14 * scale).clamp(10, 18).toDouble()),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(100)),
             );
 
             Widget metricRow() {
@@ -703,11 +823,16 @@ class _AutomationPageState extends State<AutomationPage>
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Target Moisture Content", style: t(16, w: FontWeight.w700, c: context.brand)),
+                  Text("Target Moisture Content",
+                      style:
+                          t(16, w: FontWeight.w700, c: context.brand)),
                   SizedBox(height: (10 * scale).clamp(6, 12).toDouble()),
                   Row(
                     children: [
-                      Text("9%", style: t(12, w: FontWeight.w700, c: cs.onSurface.withOpacity(0.7))),
+                      Text("9%",
+                          style: t(12,
+                              w: FontWeight.w700,
+                              c: cs.onSurface.withOpacity(0.7))),
                       Expanded(
                         child: Slider(
                           value: _targetMc,
@@ -716,17 +841,23 @@ class _AutomationPageState extends State<AutomationPage>
                           divisions: 10, // 0.5% steps
                           label: "${_targetMc.toStringAsFixed(1)}%",
                           onChanged: (v) {
-                            setState(() => _targetMc = double.parse(v.toStringAsFixed(1)));
+                            setState(() =>
+                                _targetMc = double.parse(v.toStringAsFixed(1)));
                           },
                         ),
                       ),
-                      Text("14%", style: t(12, w: FontWeight.w700, c: cs.onSurface.withOpacity(0.7))),
+                      Text("14%",
+                          style: t(12,
+                              w: FontWeight.w700,
+                              c: cs.onSurface.withOpacity(0.7))),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
                     tip,
-                    style: t(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.85)),
+                    style: t(13,
+                        w: FontWeight.w600,
+                        c: cs.onSurface.withOpacity(0.85)),
                   ),
                 ],
               );
@@ -742,11 +873,13 @@ class _AutomationPageState extends State<AutomationPage>
                     onTap: () => setState(() => _selectedBracket = b),
                     borderRadius: BorderRadius.circular(16),
                     child: Container(
-                      padding: EdgeInsets.all((12 * scale).clamp(10, 18).toDouble()),
+                      padding: EdgeInsets.all(
+                          (12 * scale).clamp(10, 18).toDouble()),
                       decoration: BoxDecoration(
                         color: bg,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: cs.outline.withOpacity(sel ? 0.0 : 1.0)),
+                        border: Border.all(
+                            color: cs.outline.withOpacity(sel ? 0.0 : 1.0)),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -762,7 +895,8 @@ class _AutomationPageState extends State<AutomationPage>
                             b.description,
                             textAlign: TextAlign.center,
                             style: t((12 * scale).clamp(11, 15).toDouble(),
-                                w: FontWeight.w600, c: fg.withOpacity(0.9)),
+                                w: FontWeight.w600,
+                                c: fg.withOpacity(0.9)),
                           ),
                         ],
                       ),
@@ -774,7 +908,9 @@ class _AutomationPageState extends State<AutomationPage>
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Initial Moisture Content", style: t(16, w: FontWeight.w700, c: context.brand)),
+                  Text("Initial Moisture Content",
+                      style:
+                          t(16, w: FontWeight.w700, c: context.brand)),
                   SizedBox(height: (10 * scale).clamp(6, 12).toDouble()),
                   Row(
                     children: [
@@ -842,8 +978,10 @@ class _AutomationPageState extends State<AutomationPage>
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Text("Session Plan",
-                                  style: t((16 * scale).clamp(14, 20).toDouble(),
-                                      w: FontWeight.w700, c: context.brand)),
+                                  style: t(
+                                      (16 * scale).clamp(14, 20).toDouble(),
+                                      w: FontWeight.w700,
+                                      c: context.brand)),
                               const SizedBox(height: 10),
                               targetSlider(),
                               const SizedBox(height: 14),
@@ -853,16 +991,23 @@ class _AutomationPageState extends State<AutomationPage>
                               const SizedBox(height: 14),
                               ElevatedButton(
                                 style: startStyle,
-                                onPressed: (_inputsComplete && !_isRunning && !_waitingForPreheat)
+                                onPressed: (_inputsComplete &&
+                                        !_isRunning &&
+                                        !_waitingForPreheat)
                                     ? () async {
-                                  // Push selected preset, target MC, ETA, and enable thermostat
-                                  await _sendInitToDevice();
-                                  // Show the preheat/ready dialog
-                                  await _startPreheatDialog();
-                                }
+                                        // Bluetooth readiness guard
+                                        final ok = await _ensureBluetoothReadyOrExplain();
+                                        if (!ok) return;
+
+                                        // Existing behavior
+                                        await _sendInitToDevice();
+                                        await _startPreheatDialog();
+                                      }
                                     : null,
                                 child: Text("Start",
-                                    style: t(14, w: FontWeight.w700, c: cs.onPrimary)),
+                                    style: t(14,
+                                        w: FontWeight.w700,
+                                        c: cs.onPrimary)),
                               ),
                             ],
                           ),
@@ -879,35 +1024,49 @@ class _AutomationPageState extends State<AutomationPage>
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
                                     "Session Timer",
-                                    style: t((16 * scale).clamp(14, 20).toDouble(),
-                                        w: FontWeight.w700, c: context.brand),
+                                    style: t(
+                                        (16 * scale).clamp(14, 20).toDouble(),
+                                        w: FontWeight.w700,
+                                        c: context.brand),
                                   ),
                                   Container(
                                     padding: EdgeInsets.symmetric(
-                                      horizontal: (10 * scale).clamp(8, 14).toDouble(),
-                                      vertical: (6 * scale).clamp(4, 10).toDouble(),
+                                      horizontal: (10 * scale)
+                                          .clamp(8, 14)
+                                          .toDouble(),
+                                      vertical:
+                                          (6 * scale).clamp(4, 10).toDouble(),
                                     ),
                                     decoration: BoxDecoration(
                                       color: _isRunning
-                                          ? (_isPaused ? Colors.amber.shade100 : cs.secondaryContainer)
+                                          ? (_isPaused
+                                              ? Colors.amber.shade100
+                                              : cs.secondaryContainer)
                                           : cs.surfaceVariant,
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: Text(
                                       _isRunning
                                           ? (_isPaused ? "Paused" : "Running")
-                                          : (_waitingForPreheat ? "Initializing" : "Idle"),
-                                      style: t((12 * scale).clamp(11, 15).toDouble(),
+                                          : (_waitingForPreheat
+                                              ? "Initializing"
+                                              : "Idle"),
+                                      style: t(
+                                          (12 * scale)
+                                              .clamp(11, 15)
+                                              .toDouble(),
                                           w: FontWeight.w700,
                                           c: _isRunning
                                               ? (_isPaused
-                                              ? Colors.amber.shade900
-                                              : cs.onSecondaryContainer)
-                                              : cs.onSurface.withOpacity(0.8)),
+                                                  ? Colors.amber.shade900
+                                                  : cs.onSecondaryContainer)
+                                              : cs.onSurface
+                                                  .withOpacity(0.8)),
                                     ),
                                   ),
                                 ],
@@ -946,11 +1105,14 @@ class _AutomationPageState extends State<AutomationPage>
                                               shape: BoxShape.circle,
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: dotColor.withOpacity(0.45),
-                                                  blurRadius:
-                                                  (10 * scale).clamp(6, 14).toDouble(),
-                                                  spreadRadius:
-                                                  (2 * scale).clamp(1, 3).toDouble(),
+                                                  color: dotColor
+                                                      .withOpacity(0.45),
+                                                  blurRadius: (10 * scale)
+                                                      .clamp(6, 14)
+                                                      .toDouble(),
+                                                  spreadRadius: (2 * scale)
+                                                      .clamp(1, 3)
+                                                      .toDouble(),
                                                 ),
                                               ],
                                             ),
@@ -963,15 +1125,22 @@ class _AutomationPageState extends State<AutomationPage>
                                         children: [
                                           Text(
                                             _fmtDuration(_remaining),
-                                            style: t(bigText, w: FontWeight.w800),
+                                            style:
+                                                t(bigText, w: FontWeight.w800),
                                           ),
-                                          SizedBox(height: (6 * scale).clamp(4, 10).toDouble()),
+                                          SizedBox(
+                                              height: (6 * scale)
+                                                  .clamp(4, 10)
+                                                  .toDouble()),
                                           Text(
                                             "to ${_targetMc.toStringAsFixed(1)}% MC",
                                             style: t(
-                                                (14 * scale).clamp(12, 18).toDouble(),
+                                                (14 * scale)
+                                                    .clamp(12, 18)
+                                                    .toDouble(),
                                                 w: FontWeight.w600,
-                                                c: cs.onSurface.withOpacity(0.8)),
+                                                c: cs.onSurface
+                                                    .withOpacity(0.8)),
                                           ),
                                         ],
                                       ),
@@ -980,7 +1149,10 @@ class _AutomationPageState extends State<AutomationPage>
                                 );
                               }),
 
-                              SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
+                              SizedBox(
+                                  height: (16 * scale)
+                                      .clamp(12, 22)
+                                      .toDouble()),
                               // Controls: only Pause/Play and Stop while running (UI only)
                               Row(
                                 children: [
@@ -989,16 +1161,18 @@ class _AutomationPageState extends State<AutomationPage>
                                       style: _isPaused ? playStyle : pauseStyle,
                                       onPressed: _isRunning
                                           ? () {
-                                        if (_isPaused) {
-                                          _resume();
-                                        } else {
-                                          _pause();
-                                        }
-                                      }
+                                              if (_isPaused) {
+                                                _resume();
+                                              } else {
+                                                _pause();
+                                              }
+                                            }
                                           : null,
                                       child: Text(
                                         _isPaused ? "Play" : "Pause",
-                                        style: t(14, w: FontWeight.w700, c: Colors.white),
+                                        style: t(14,
+                                            w: FontWeight.w700,
+                                            c: Colors.white),
                                       ),
                                     ),
                                   ),
@@ -1006,61 +1180,87 @@ class _AutomationPageState extends State<AutomationPage>
                                   Expanded(
                                     child: ElevatedButton(
                                       style: stopStyle,
-                                      onPressed: _isRunning || _waitingForPreheat || _isPaused
+                                      onPressed: _isRunning ||
+                                              _waitingForPreheat ||
+                                              _isPaused
                                           ? () async {
-                                        final cs = Theme.of(context).colorScheme;
-                                        await showDialog(
-                                          context: context,
-                                          builder: (ctx) => AlertDialog(
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius: BorderRadius.circular(16),
-                                            ),
-                                            title: Text("Stop Session",
-                                                style: GoogleFonts.poppins(
-                                                    fontSize: 18, fontWeight: FontWeight.w700, color: cs.onSurface)),
-                                            content: Text(
-                                                "You are about to stop the current session.",
-                                                style: GoogleFonts.poppins(
-                                                    fontSize: 14, color: cs.onSurface.withOpacity(0.85))),
-                                            actions: [
-                                              TextButton(
-                                                onPressed: () => Navigator.pop(ctx),
-                                                child: Text("Cancel",
-                                                    style: GoogleFonts.poppins(
-                                                        fontSize: 14,
-                                                        fontWeight: FontWeight.w600,
-                                                        color: context.brand)),
-                                              ),
-                                              ElevatedButton(
-                                                onPressed: () {
-                                                  Navigator.pop(ctx);
-                                                  if (_waitingForPreheat) {
-                                                    _waitingForPreheat = false;
-                                                    _preheatReady = false;
-                                                    _safeAllStop();
-                                                  }
-                                                  _finishSession();
-                                                },
-                                                child: Text("Confirm",
-                                                    style: GoogleFonts.poppins(
-                                                        fontSize: 14,
-                                                        fontWeight: FontWeight.w700,
-                                                        color: cs.onPrimary)),
-                                              ),
-                                            ],
-                                          ),
-                                        );
-                                      }
+                                              final cs =
+                                                  Theme.of(context).colorScheme;
+                                              await showDialog(
+                                                context: context,
+                                                builder: (ctx) => AlertDialog(
+                                                  shape: RoundedRectangleBorder(
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            16),
+                                                  ),
+                                                  title: Text("Stop Session",
+                                                      style: GoogleFonts.poppins(
+                                                          fontSize: 18,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color:
+                                                              cs.onSurface)),
+                                                  content: Text(
+                                                      "You are about to stop the current session.",
+                                                      style: GoogleFonts.poppins(
+                                                          fontSize: 14,
+                                                          color: cs.onSurface
+                                                              .withOpacity(
+                                                                  0.85))),
+                                                  actions: [
+                                                    TextButton(
+                                                      onPressed: () =>
+                                                          Navigator.pop(ctx),
+                                                      child: Text("Cancel",
+                                                          style: GoogleFonts.poppins(
+                                                              fontSize: 14,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              color: context
+                                                                  .brand)),
+                                                    ),
+                                                    ElevatedButton(
+                                                      onPressed: () {
+                                                        Navigator.pop(ctx);
+                                                        if (_waitingForPreheat) {
+                                                          _waitingForPreheat =
+                                                              false;
+                                                          _preheatReady = false;
+                                                          _safeAllStop();
+                                                        }
+                                                        _finishSession();
+                                                      },
+                                                      child: Text("Confirm",
+                                                          style: GoogleFonts
+                                                              .poppins(
+                                                                  fontSize: 14,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w700,
+                                                                  color: cs
+                                                                      .onPrimary)),
+                                                    ),
+                                                  ],
+                                                ),
+                                              );
+                                            }
                                           : null,
                                       child: Text(
                                         "Stop",
-                                        style: t(14, w: FontWeight.w700, c: Colors.white),
+                                        style: t(14,
+                                            w: FontWeight.w700,
+                                            c: Colors.white),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
-                              SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
+                              SizedBox(
+                                  height: (16 * scale)
+                                      .clamp(12, 22)
+                                      .toDouble()),
                               metricRow(),
                             ],
                           ),
@@ -1102,7 +1302,8 @@ class _AutomationPageState extends State<AutomationPage>
           double? height,
           TextDecoration? deco,
         }) {
-          final effective = color == const Color(0x00000000) ? cs.onSurface : color;
+          final effective =
+              color == const Color(0x00000000) ? cs.onSurface : color;
           return GoogleFonts.poppins(
             fontSize: size,
             fontWeight: weight,
@@ -1123,11 +1324,11 @@ class _MetricBox extends StatelessWidget {
   final Color border;
   final IconData icon;
   final TextStyle Function({
-  double? size,
-  FontWeight? weight,
-  Color color,
-  double? height,
-  TextDecoration? deco,
+    double? size,
+    FontWeight? weight,
+    Color color,
+    double? height,
+    TextDecoration? deco,
   }) textBuilder;
 
   const _MetricBox({
@@ -1236,7 +1437,8 @@ class _TargetRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TargetRingPainter old) =>
       old.progress != progress ||
-          old.track != track ||
-          old.stroke != stroke ||
-          old.color != color;
+      old.track != track ||
+      old.stroke != stroke ||
+      old.color != color;
 }
+

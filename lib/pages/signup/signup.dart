@@ -68,7 +68,8 @@ class _SignUpPageState extends State<SignUpPage> {
       );
 
       final user = cred.user!;
-      final fullName = "${_firstName.text.trim()} ${_lastName.text.trim()}".trim();
+      final fullName = "${_firstName.text.trim()} ${_lastName.text.trim()}"
+          .trim();
 
       await user.updateDisplayName(fullName);
 
@@ -82,7 +83,9 @@ class _SignUpPageState extends State<SignUpPage> {
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Account created!', style: GoogleFonts.poppins())),
+        SnackBar(
+          content: Text('Account created!', style: GoogleFonts.poppins()),
+        ),
       );
 
       // ✅ Go to tabbed Home
@@ -119,7 +122,10 @@ class _SignUpPageState extends State<SignUpPage> {
         hintStyle: GoogleFonts.poppins(color: borderGrey),
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         prefixIcon: prefix,
         suffixIcon: suffix,
         enabledBorder: OutlineInputBorder(
@@ -129,6 +135,14 @@ class _SignUpPageState extends State<SignUpPage> {
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(30),
           borderSide: const BorderSide(color: themeGreen, width: 1.5),
+        ),
+        errorBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(30)),
+          borderSide: BorderSide(color: Colors.red),
+        ),
+        focusedErrorBorder: const OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(30)),
+          borderSide: BorderSide(color: Colors.red, width: 1.5),
         ),
       );
     }
@@ -184,7 +198,8 @@ class _SignUpPageState extends State<SignUpPage> {
                       textCapitalization: TextCapitalization.words,
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(hint: "Last Name"),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? "Required" : null,
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? "Required" : null,
                     ),
                     const SizedBox(height: 14),
 
@@ -193,7 +208,8 @@ class _SignUpPageState extends State<SignUpPage> {
                       textCapitalization: TextCapitalization.words,
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(hint: "First Name"),
-                      validator: (v) => (v == null || v.trim().isEmpty) ? "Required" : null,
+                      validator: (v) =>
+                          (v == null || v.trim().isEmpty) ? "Required" : null,
                     ),
                     const SizedBox(height: 14),
 
@@ -203,11 +219,15 @@ class _SignUpPageState extends State<SignUpPage> {
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(
                         hint: "Email",
-                        prefix: const Icon(Icons.email_outlined, color: borderGrey),
+                        prefix: const Icon(
+                          Icons.email_outlined,
+                          color: borderGrey,
+                        ),
                       ),
                       validator: (v) {
                         if (v == null || v.isEmpty) return "Enter your email";
-                        if (!v.contains("@") || !v.contains(".")) return "Enter a valid email";
+                        if (!v.contains("@") || !v.contains("."))
+                          return "Enter a valid email";
                         return null;
                       },
                     ),
@@ -219,14 +239,22 @@ class _SignUpPageState extends State<SignUpPage> {
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(
                         hint: "Password",
-                        prefix: const Icon(Icons.lock_outline, color: borderGrey),
+                        prefix: const Icon(
+                          Icons.lock_outline,
+                          color: borderGrey,
+                        ),
                         suffix: IconButton(
-                          icon: Icon(_obscure1 ? Icons.visibility_off : Icons.visibility, color: borderGrey),
-                          onPressed: () => setState(() => _obscure1 = !_obscure1),
+                          icon: Icon(
+                            _obscure1 ? Icons.visibility_off : Icons.visibility,
+                            color: borderGrey,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscure1 = !_obscure1),
                         ),
                       ),
                       validator: (v) {
-                        if (v == null || v.isEmpty) return "Enter your password";
+                        if (v == null || v.isEmpty)
+                          return "Enter your password";
                         if (v.length < 6) return "At least 6 characters";
                         return null;
                       },
@@ -239,15 +267,24 @@ class _SignUpPageState extends State<SignUpPage> {
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(
                         hint: "Confirm password",
-                        prefix: const Icon(Icons.lock_outline, color: borderGrey),
+                        prefix: const Icon(
+                          Icons.lock_outline,
+                          color: borderGrey,
+                        ),
                         suffix: IconButton(
-                          icon: Icon(_obscure2 ? Icons.visibility_off : Icons.visibility, color: borderGrey),
-                          onPressed: () => setState(() => _obscure2 = !_obscure2),
+                          icon: Icon(
+                            _obscure2 ? Icons.visibility_off : Icons.visibility,
+                            color: borderGrey,
+                          ),
+                          onPressed: () =>
+                              setState(() => _obscure2 = !_obscure2),
                         ),
                       ),
                       validator: (v) {
-                        if (v == null || v.isEmpty) return "Re-type your password";
-                        if (v != _password.text) return "Passwords do not match";
+                        if (v == null || v.isEmpty)
+                          return "Re-type your password";
+                        if (v != _password.text)
+                          return "Passwords do not match";
                         return null;
                       },
                     ),
@@ -257,19 +294,34 @@ class _SignUpPageState extends State<SignUpPage> {
                       height: 50,
                       child: ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: _isFormValid ? buttonActive : buttonInactive,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                          backgroundColor: _isFormValid
+                              ? buttonActive
+                              : buttonInactive,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
                         ),
                         onPressed: _isFormValid && !_loading ? _submit : null,
                         child: _loading
-                            ? const CircularProgressIndicator(color: Colors.white, strokeWidth: 2)
+                            ? const CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              )
                             : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
-                                  Text("Continue",
-                                      style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
+                                  Text(
+                                    "Continue",
+                                    style: GoogleFonts.poppins(
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                   const SizedBox(width: 8),
-                                  const Icon(Icons.arrow_forward, color: Colors.white),
+                                  const Icon(
+                                    Icons.arrow_forward,
+                                    color: Colors.white,
+                                  ),
                                 ],
                               ),
                       ),
@@ -281,7 +333,10 @@ class _SignUpPageState extends State<SignUpPage> {
                         const Expanded(child: Divider(color: borderGrey)),
                         Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text("or", style: GoogleFonts.poppins(color: themeGreen)),
+                          child: Text(
+                            "or",
+                            style: GoogleFonts.poppins(color: themeGreen),
+                          ),
                         ),
                         const Expanded(child: Divider(color: borderGrey)),
                       ],
@@ -291,14 +346,25 @@ class _SignUpPageState extends State<SignUpPage> {
                     SizedBox(
                       height: 48,
                       child: OutlinedButton.icon(
-                        onPressed: () {/* TODO: implement Google sign-up */},
-                        icon: Image.asset("assets/images/google.png", height: 20),
+                        onPressed: () {
+                          /* TODO: implement Google sign-up */
+                        },
+                        icon: Image.asset(
+                          "assets/images/google.png",
+                          height: 20,
+                        ),
                         label: Text(
                           "Sign up with Google",
-                          style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w500, color: themeGreen),
+                          style: GoogleFonts.poppins(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: themeGreen,
+                          ),
                         ),
                         style: OutlinedButton.styleFrom(
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
                           side: const BorderSide(color: borderGrey),
                           backgroundColor: Colors.white,
                         ),

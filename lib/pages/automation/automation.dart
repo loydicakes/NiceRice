@@ -231,6 +231,22 @@ class _AutomationPageState extends State<AutomationPage>
     return delta / _rateMcPerMin;
   }
 
+  // ---------------------- Target Tip Mapping ----------------------
+  /// Returns the advisory tip for the current target moisture content.
+  String _tipForTargetMc(double mc) {
+    // Slider is 9.0–14.0 in 0.5 steps
+    if (mc >= 9.0 && mc <= 9.5) {
+      return "9–9.5% • good for long-term seed preservation";
+    } else if (mc > 9.5 && mc <= 11.5) {
+      return "10–11.5% • good for short-term seed preservation";
+    } else if (mc > 11.5 && mc <= 12.5) {
+      return "12–12.5% • for storage beyond 3 months";
+    } else if (mc > 12.5 && mc <= 14.0) {
+      return "13–14% • for storage within 2–3 months (recommended for milling)";
+    }
+    return "Select a target moisture content (9–14%)";
+  }
+
   // --------------- Session Controls ---------------
   bool get _inputsComplete =>
       _selectedBracket != null && _targetMc >= 9.0 && _targetMc <= 14.0;
@@ -436,16 +452,7 @@ class _AutomationPageState extends State<AutomationPage>
             }
 
             Widget targetSlider() {
-              String tip;
-              if (_targetMc <= 10.0) {
-                tip = "9–10% • good for long-term seed preservation";
-              } else if (_targetMc >= 13.0) {
-                tip = "13–14% • 2–3 months storage (recommended for milling)";
-              } else if (_targetMc >= 12.0 && _targetMc <= 12.5) {
-                tip = "12–12.5% • storage beyond 3 months";
-              } else {
-                tip = "Select a target moisture content (9–14%)";
-              }
+              final tip = _tipForTargetMc(_targetMc); // 👈 updated mapping
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,8 +477,11 @@ class _AutomationPageState extends State<AutomationPage>
                       Text("14%", style: t(12, w: FontWeight.w700, c: cs.onSurface.withOpacity(0.7))),
                     ],
                   ),
-                  SizedBox(height: 4),
-                  Text(tip, style: t(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.85))),
+                  const SizedBox(height: 4),
+                  Text(
+                    tip,
+                    style: t(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.85)),
+                  ),
                 ],
               );
             }
@@ -717,8 +727,6 @@ class _AutomationPageState extends State<AutomationPage>
                                   ),
                                 );
                               }),
-
-                             
 
                               SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
                               // Controls: only Pause/Play and Stop while running

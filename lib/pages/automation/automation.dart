@@ -67,7 +67,7 @@ extension on InitialBracket {
 class _AutomationPageState extends State<AutomationPage>
     with AutomaticKeepAliveClientMixin {
   static final MethodChannel _bleChannel =
-      const MethodChannel('app.bluetooth/controls');
+  const MethodChannel('app.bluetooth/controls');
 
   @override
   bool get wantKeepAlive => true;
@@ -101,11 +101,11 @@ class _AutomationPageState extends State<AutomationPage>
   double? _initialMcForSession;
 
   // Single color for progress ring / dot (requested)
-  static const Color _ringSingleColor = Color.fromARGB(255, 63, 252, 88); // clean blue
+  static const Color _ringSingleColor = Color.fromARGB(255, 63, 252, 88); // green
 
   // ---------------------- Preheat / Init Gate ----------------------
-  static const double _preheatTempMin = 45.0;   // °C: ready when >= this
-  static const double _preheatHumidityMax = 80; // %RH: ready when <= this
+  static const double _preheatTempMin = 35.0;   // °C: ready when in 45–70°C
+  static const double _preheatTempMax = 70.0;   // °C ceiling for preheat band
 
   bool _waitingForPreheat = false;  // true while the init dialog is open
   bool _preheatReady = false;       // flips to true once thresholds are met
@@ -139,7 +139,9 @@ class _AutomationPageState extends State<AutomationPage>
       OperationHistory.instance.logReading(id, _humidity);
       // ignore: discarded_futures
       OperationHistory.instance.endOperation(id);
-      _sendAllOff();
+      _safeAllStop(); // ensure heater/aux are off and thermostat disabled
+    } else {
+      _safeAllStop();
     }
 
     super.dispose();
@@ -161,8 +163,29 @@ class _AutomationPageState extends State<AutomationPage>
   double get _progress {
     if (_sessionDuration.inSeconds <= 0) return 0.0;
     final done =
-        (_sessionDuration.inSeconds - _remaining.inSeconds).clamp(0, _sessionDuration.inSeconds);
+    (_sessionDuration.inSeconds - _remaining.inSeconds).clamp(0, _sessionDuration.inSeconds);
     return (done / _sessionDuration.inSeconds).clamp(0.0, 1.0);
+  }
+
+  // ---------------------- Power helpers (heater-safe) ----------------------
+  Future<void> _auxOn() async {
+    // Turn on only auxiliaries (fans, exhaust, etc.). Adjust to your wiring.
+    await _sendCommand("ON2");
+    await _sendCommand("ON3");
+    await _sendCommand("ON4");
+  }
+
+  Future<void> _auxOff() async {
+    await _sendCommand("OFF2");
+    await _sendCommand("OFF3");
+    await _sendCommand("OFF4");
+  }
+
+  Future<void> _safeAllStop() async {
+    // Ensure thermostat is disabled and heater is off
+    await _sendCommand("THERMO:OFF");
+    await _sendCommand("OFF1"); // heater relay (IN1 / GPIO25)
+    await _auxOff();
   }
 
   // --------------- BLE Parsing ---------------
@@ -202,14 +225,37 @@ class _AutomationPageState extends State<AutomationPage>
   Future<void> _handleBluetoothData(MethodCall call) async {
     if (call.method == "onDataReceived") {
       final String data = call.arguments.toString().trim();
+
+      // Parse sensors first
       _parseDhtResponse(data);
+
+      // Parse events / ACKs line-by-line
+      for (final line in data.split(RegExp(r'[\r\n]+'))) {
+        final msg = line.trim();
+        if (msg.isEmpty) continue;
+
+        if (msg == "EVENT:COUNTDOWN_START") {
+          // Just leave initializing state; timer starts only when user pressed "Start Drying"
+          if (_waitingForPreheat) {
+            setState(() => _waitingForPreheat = false);
+          }
+          // Do NOT call _beginDrying() here anymore.
+        } else if (msg == "EVENT:COUNTDOWN_DONE") {
+          if (_isRunning) _finishSession(auto: true);
+        } else if (msg == "EVENT:SAFETY_STOP") {
+          Fluttertoast.showToast(msg: "Safety stop triggered by device");
+          if (_isRunning) _finishSession();
+        }
+        // Optional: show ACKs for debugging
+        // else if (msg.startsWith("ACK:")) Fluttertoast.showToast(msg: msg);
+      }
     }
   }
 
   Future<void> _sendCommand(String command) async {
     try {
       final response =
-          await _bleChannel.invokeMethod<String>('sendData', {'data': command});
+      await _bleChannel.invokeMethod<String>('sendData', {'data': command});
       if (response != null) {
         _parseDhtResponse(response);
       }
@@ -218,18 +264,35 @@ class _AutomationPageState extends State<AutomationPage>
     }
   }
 
-  void _sendAllOn() {
-    _sendCommand("ON1");
-    _sendCommand("ON2");
-    _sendCommand("ON3");
-    _sendCommand("ON4");
-  }
+  // Sends preset, target MC, ETA, and enables thermostat on the device
+  Future<void> _sendInitToDevice() async {
+    if (_selectedBracket == null) return;
 
-  void _sendAllOff() {
-    _sendCommand("OFF1");
-    _sendCommand("OFF2");
-    _sendCommand("OFF3");
-    _sendCommand("OFF4");
+    // 1) Preset (maps to ESP32 preset temps)
+    switch (_selectedBracket!) {
+      case InitialBracket.ideal:
+        await _sendCommand("MODE:IDEAL");
+        break;
+      case InitialBracket.late:
+        await _sendCommand("MODE:LATE");
+        break;
+      case InitialBracket.early:
+        await _sendCommand("MODE:EARLY");
+        break;
+    }
+
+    // 2) Target Moisture Content
+    await _sendCommand("SET:TARGET_MC=${_targetMc.toStringAsFixed(1)}");
+
+    // 3) ETA minutes
+    final etaMin = _computeEtaMinutes();
+    if (etaMin != null) {
+      final etaRounded = etaMin.clamp(0, 9999).toStringAsFixed(1);
+      await _sendCommand("SET:ETA_MIN=$etaRounded");
+    }
+
+    // 4) Enable thermostat (heater controlled by ESP32; app does not toggle ON1)
+    await _sendCommand("THERMO:ON");
   }
 
   // --------------- ETA Computation ---------------
@@ -259,7 +322,8 @@ class _AutomationPageState extends State<AutomationPage>
 
   // ---------------------- Preheat / Init Flow ----------------------
   bool _meetsPreheatThresholds() {
-    return _temperature >= _preheatTempMin && _humidity <= _preheatHumidityMax;
+    // user can load paddy when temp is within 45–70°C
+    return _temperature >= _preheatTempMin && _temperature < _preheatTempMax;
   }
 
   void _maybeMarkPreheatReady() {
@@ -278,10 +342,10 @@ class _AutomationPageState extends State<AutomationPage>
     }
     if (!_inputsComplete) return;
 
-    // Begin preheat phase (hardware on while waiting)
+    // Begin preheat phase (aux on; heater controlled by thermostat)
     _waitingForPreheat = true;
     _preheatReady = _meetsPreheatThresholds();
-    _sendAllOn();
+    await _auxOn();
 
     // Keep a local notifier so the dialog can react to _preheatReady changes
     final readyNotifier = ValueNotifier<bool>(_preheatReady);
@@ -318,7 +382,7 @@ class _AutomationPageState extends State<AutomationPage>
                       Text("Initializing...", style: t(18, w: FontWeight.w800)),
                       const SizedBox(height: 8),
                       Text(
-                        "Please wait for a moment",
+                        "Please wait for chamber to reach 45–70°C",
                         textAlign: TextAlign.center,
                         style: t(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
                       ),
@@ -353,7 +417,7 @@ class _AutomationPageState extends State<AutomationPage>
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        "Target: ≥ ${_preheatTempMin.toStringAsFixed(0)}°C and ≤ ${_preheatHumidityMax.toStringAsFixed(0)}% RH",
+                        "Target: temperature between 45°C and 70°C",
                         style: t(12, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.7)),
                       ),
                       const SizedBox(height: 16),
@@ -364,7 +428,7 @@ class _AutomationPageState extends State<AutomationPage>
                               onPressed: () {
                                 _waitingForPreheat = false;
                                 _preheatReady = false;
-                                _sendAllOff();
+                                _safeAllStop();
                                 Navigator.pop(ctx);
                               },
                               child: Text("Cancel", style: t(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
@@ -374,7 +438,7 @@ class _AutomationPageState extends State<AutomationPage>
                       ),
                     ] else ...[
                       const SizedBox(height: 8),
-                      Icon(Icons.check_circle, size: 44, color: Colors.green),
+                      const Icon(Icons.check_circle, size: 44, color: Colors.green),
                       const SizedBox(height: 16),
                       Text("You may now put your grains", style: t(18, w: FontWeight.w800)),
                       const SizedBox(height: 8),
@@ -391,7 +455,7 @@ class _AutomationPageState extends State<AutomationPage>
                               onPressed: () {
                                 _waitingForPreheat = false;
                                 _preheatReady = false;
-                                _sendAllOff();
+                                _safeAllStop();
                                 Navigator.pop(ctx);
                               },
                               child: Text("Cancel", style: t(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
@@ -400,10 +464,15 @@ class _AutomationPageState extends State<AutomationPage>
                           const SizedBox(width: 10),
                           Expanded(
                             child: ElevatedButton(
-                              onPressed: () {
+                              onPressed: () async {
                                 _waitingForPreheat = false;
                                 Navigator.pop(ctx);
-                                _beginDrying(); // start the timer here
+
+                                // 1) Tell device to arm/start its side
+                                await _sendCommand("ARM:COUNTDOWN");
+
+                                // 2) Start OUR session timer immediately (user action = source of truth)
+                                if (!_isRunning) _beginDrying();
                               },
                               child: Text("Start Drying", style: t(14, w: FontWeight.w700, c: Colors.white)),
                             ),
@@ -428,7 +497,7 @@ class _AutomationPageState extends State<AutomationPage>
   bool get _inputsComplete =>
       _selectedBracket != null && _targetMc >= 9.0 && _targetMc <= 14.0;
 
-  // Phase 2: actual drying countdown starts here (after dialog "Start Drying")
+  // Phase 2: actual drying countdown (UI mirror). Device owns the real timer.
   void _beginDrying() {
     if (_isRunning) {
       Fluttertoast.showToast(msg: "A session is already running.");
@@ -465,15 +534,15 @@ class _AutomationPageState extends State<AutomationPage>
       AutomationPage.progress.value = _progress;
 
       if (_remaining == Duration.zero) {
-        // Auto stop when done
+        // Wait for device EVENT:COUNTDOWN_DONE to truly end hardware
         _finishSession(auto: true);
       }
     });
 
-    // Start/continue hardware during drying phase
+    // Start/continue aux hardware during drying phase (heater remains thermostat-controlled)
     _currentOpId = OperationHistory.instance.startOperation();
     OperationHistory.instance.logReading(_currentOpId!, _humidity);
-    _sendAllOn();
+    _auxOn();
 
     Fluttertoast.showToast(msg: "Drying started");
   }
@@ -495,7 +564,9 @@ class _AutomationPageState extends State<AutomationPage>
 
       OperationHistory.instance.logReading(id, _humidity);
       await OperationHistory.instance.endOperation(id);
-      _sendAllOff();
+      await _safeAllStop();
+    } else {
+      await _safeAllStop();
     }
 
     if (auto) {
@@ -572,8 +643,8 @@ class _AutomationPageState extends State<AutomationPage>
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
-                horizontal: (22 * scale).clamp(16, 28).toDouble(),
-                vertical: (14 * scale).clamp(10, 18).toDouble()),
+                  horizontal: (22 * scale).clamp(16, 28).toDouble(),
+                  vertical: (14 * scale).clamp(10, 18).toDouble()),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
             );
@@ -583,8 +654,8 @@ class _AutomationPageState extends State<AutomationPage>
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
-                horizontal: (22 * scale).clamp(16, 28).toDouble(),
-                vertical: (14 * scale).clamp(10, 18).toDouble()),
+                  horizontal: (22 * scale).clamp(16, 28).toDouble(),
+                  vertical: (14 * scale).clamp(10, 18).toDouble()),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
             );
@@ -594,8 +665,8 @@ class _AutomationPageState extends State<AutomationPage>
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
-                horizontal: (22 * scale).clamp(16, 28).toDouble(),
-                vertical: (14 * scale).clamp(10, 18).toDouble()),
+                  horizontal: (22 * scale).clamp(16, 28).toDouble(),
+                  vertical: (14 * scale).clamp(10, 18).toDouble()),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
             );
@@ -686,7 +757,7 @@ class _AutomationPageState extends State<AutomationPage>
                             style: t((18 * scale).clamp(16, 24).toDouble(),
                                 w: FontWeight.w800, c: fg),
                           ),
-                          SizedBox(height: 6),
+                          const SizedBox(height: 6),
                           Text(
                             b.description,
                             textAlign: TextAlign.center,
@@ -784,8 +855,11 @@ class _AutomationPageState extends State<AutomationPage>
                                 style: startStyle,
                                 onPressed: (_inputsComplete && !_isRunning && !_waitingForPreheat)
                                     ? () async {
-                                        await _startPreheatDialog();
-                                      }
+                                  // Push selected preset, target MC, ETA, and enable thermostat
+                                  await _sendInitToDevice();
+                                  // Show the preheat/ready dialog
+                                  await _startPreheatDialog();
+                                }
                                     : null,
                                 child: Text("Start",
                                     style: t(14, w: FontWeight.w700, c: cs.onPrimary)),
@@ -831,8 +905,8 @@ class _AutomationPageState extends State<AutomationPage>
                                           w: FontWeight.w700,
                                           c: _isRunning
                                               ? (_isPaused
-                                                  ? Colors.amber.shade900
-                                                  : cs.onSecondaryContainer)
+                                              ? Colors.amber.shade900
+                                              : cs.onSecondaryContainer)
                                               : cs.onSurface.withOpacity(0.8)),
                                     ),
                                   ),
@@ -874,9 +948,9 @@ class _AutomationPageState extends State<AutomationPage>
                                                 BoxShadow(
                                                   color: dotColor.withOpacity(0.45),
                                                   blurRadius:
-                                                      (10 * scale).clamp(6, 14).toDouble(),
+                                                  (10 * scale).clamp(6, 14).toDouble(),
                                                   spreadRadius:
-                                                      (2 * scale).clamp(1, 3).toDouble(),
+                                                  (2 * scale).clamp(1, 3).toDouble(),
                                                 ),
                                               ],
                                             ),
@@ -907,7 +981,7 @@ class _AutomationPageState extends State<AutomationPage>
                               }),
 
                               SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
-                              // Controls: only Pause/Play and Stop while running
+                              // Controls: only Pause/Play and Stop while running (UI only)
                               Row(
                                 children: [
                                   Expanded(
@@ -915,12 +989,12 @@ class _AutomationPageState extends State<AutomationPage>
                                       style: _isPaused ? playStyle : pauseStyle,
                                       onPressed: _isRunning
                                           ? () {
-                                              if (_isPaused) {
-                                                _resume();
-                                              } else {
-                                                _pause();
-                                              }
-                                            }
+                                        if (_isPaused) {
+                                          _resume();
+                                        } else {
+                                          _pause();
+                                        }
+                                      }
                                           : null,
                                       child: Text(
                                         _isPaused ? "Play" : "Pause",
@@ -934,49 +1008,49 @@ class _AutomationPageState extends State<AutomationPage>
                                       style: stopStyle,
                                       onPressed: _isRunning || _waitingForPreheat || _isPaused
                                           ? () async {
-                                              final cs = Theme.of(context).colorScheme;
-                                              await showDialog(
-                                                context: context,
-                                                builder: (ctx) => AlertDialog(
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius: BorderRadius.circular(16),
-                                                  ),
-                                                  title: Text("Stop Session",
-                                                      style: GoogleFonts.poppins(
-                                                          fontSize: 18, fontWeight: FontWeight.w700, color: cs.onSurface)),
-                                                  content: Text(
-                                                      "You are about to stop the current session.",
-                                                      style: GoogleFonts.poppins(
-                                                          fontSize: 14, color: cs.onSurface.withOpacity(0.85))),
-                                                  actions: [
-                                                    TextButton(
-                                                      onPressed: () => Navigator.pop(ctx),
-                                                      child: Text("Cancel",
-                                                          style: GoogleFonts.poppins(
-                                                              fontSize: 14,
-                                                              fontWeight: FontWeight.w600,
-                                                              color: context.brand)),
-                                                    ),
-                                                    ElevatedButton(
-                                                      onPressed: () {
-                                                        Navigator.pop(ctx);
-                                                        if (_waitingForPreheat) {
-                                                          _waitingForPreheat = false;
-                                                          _preheatReady = false;
-                                                          _sendAllOff();
-                                                        }
-                                                        _finishSession();
-                                                      },
-                                                      child: Text("Confirm",
-                                                          style: GoogleFonts.poppins(
-                                                              fontSize: 14,
-                                                              fontWeight: FontWeight.w700,
-                                                              color: cs.onPrimary)),
-                                                    ),
-                                                  ],
-                                                ),
-                                              );
-                                            }
+                                        final cs = Theme.of(context).colorScheme;
+                                        await showDialog(
+                                          context: context,
+                                          builder: (ctx) => AlertDialog(
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius: BorderRadius.circular(16),
+                                            ),
+                                            title: Text("Stop Session",
+                                                style: GoogleFonts.poppins(
+                                                    fontSize: 18, fontWeight: FontWeight.w700, color: cs.onSurface)),
+                                            content: Text(
+                                                "You are about to stop the current session.",
+                                                style: GoogleFonts.poppins(
+                                                    fontSize: 14, color: cs.onSurface.withOpacity(0.85))),
+                                            actions: [
+                                              TextButton(
+                                                onPressed: () => Navigator.pop(ctx),
+                                                child: Text("Cancel",
+                                                    style: GoogleFonts.poppins(
+                                                        fontSize: 14,
+                                                        fontWeight: FontWeight.w600,
+                                                        color: context.brand)),
+                                              ),
+                                              ElevatedButton(
+                                                onPressed: () {
+                                                  Navigator.pop(ctx);
+                                                  if (_waitingForPreheat) {
+                                                    _waitingForPreheat = false;
+                                                    _preheatReady = false;
+                                                    _safeAllStop();
+                                                  }
+                                                  _finishSession();
+                                                },
+                                                child: Text("Confirm",
+                                                    style: GoogleFonts.poppins(
+                                                        fontSize: 14,
+                                                        fontWeight: FontWeight.w700,
+                                                        color: cs.onPrimary)),
+                                              ),
+                                            ],
+                                          ),
+                                        );
+                                      }
                                           : null,
                                       child: Text(
                                         "Stop",
@@ -1002,7 +1076,6 @@ class _AutomationPageState extends State<AutomationPage>
       ),
     );
   }
-
 
   // ------- Metric card wrapper -------
   Widget _metricCard({
@@ -1043,7 +1116,6 @@ class _AutomationPageState extends State<AutomationPage>
   }
 }
 
-/// Metric tile (theme-aware)
 class _MetricBox extends StatelessWidget {
   final String label;
   final String value;
@@ -1051,11 +1123,11 @@ class _MetricBox extends StatelessWidget {
   final Color border;
   final IconData icon;
   final TextStyle Function({
-    double? size,
-    FontWeight? weight,
-    Color color,
-    double? height,
-    TextDecoration? deco,
+  double? size,
+  FontWeight? weight,
+  Color color,
+  double? height,
+  TextDecoration? deco,
   }) textBuilder;
 
   const _MetricBox({
@@ -1164,7 +1236,7 @@ class _TargetRingPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _TargetRingPainter old) =>
       old.progress != progress ||
-      old.track != track ||
-      old.stroke != stroke ||
-      old.color != color;
+          old.track != track ||
+          old.stroke != stroke ||
+          old.color != color;
 }

@@ -86,6 +86,9 @@ class _AutomationPageState extends State<AutomationPage>
   double _humidity = 0.0;     // display label: Humidity
   double _temperature = 0.0; // °C
 
+  // Pulse for listeners (e.g., initializing dialog) to repaint on every sensor read
+  final ValueNotifier<int> _sensorSeq = ValueNotifier<int>(0);
+
   // ---------------------- Target / Inputs ----------------------
   // Slider: 9% to 14% in 0.5 steps
   double _targetMc = 14.0;
@@ -99,6 +102,13 @@ class _AutomationPageState extends State<AutomationPage>
 
   // Single color for progress ring / dot (requested)
   static const Color _ringSingleColor = Color.fromARGB(255, 63, 252, 88); // clean blue
+
+  // ---------------------- Preheat / Init Gate ----------------------
+  static const double _preheatTempMin = 45.0;   // °C: ready when >= this
+  static const double _preheatHumidityMax = 80; // %RH: ready when <= this
+
+  bool _waitingForPreheat = false;  // true while the init dialog is open
+  bool _preheatReady = false;       // flips to true once thresholds are met
 
   @override
   void initState() {
@@ -182,6 +192,8 @@ class _AutomationPageState extends State<AutomationPage>
             _humidity = h!;
             _temperature = t!;
           });
+          _sensorSeq.value++;           // tick listeners (e.g., dialog) to repaint with fresh values
+          _maybeMarkPreheatReady();
         }
       }
     }
@@ -232,9 +244,7 @@ class _AutomationPageState extends State<AutomationPage>
   }
 
   // ---------------------- Target Tip Mapping ----------------------
-  /// Returns the advisory tip for the current target moisture content.
   String _tipForTargetMc(double mc) {
-    // Slider is 9.0–14.0 in 0.5 steps
     if (mc >= 9.0 && mc <= 9.5) {
       return "9–9.5% • good for long-term seed preservation";
     } else if (mc > 9.5 && mc <= 11.5) {
@@ -247,17 +257,183 @@ class _AutomationPageState extends State<AutomationPage>
     return "Select a target moisture content (9–14%)";
   }
 
-  // --------------- Session Controls ---------------
-  bool get _inputsComplete =>
-      _selectedBracket != null && _targetMc >= 9.0 && _targetMc <= 14.0;
+  // ---------------------- Preheat / Init Flow ----------------------
+  bool _meetsPreheatThresholds() {
+    return _temperature >= _preheatTempMin && _humidity <= _preheatHumidityMax;
+  }
 
-  void _commenceSession() {
-      if (_isRunning) {
-    Fluttertoast.showToast(msg: "A session is already running.");
-    return;
+  void _maybeMarkPreheatReady() {
+    if (!_waitingForPreheat || _preheatReady) return;
+    if (_meetsPreheatThresholds()) {
+      setState(() => _preheatReady = true);
+      // Play a simple system "ting"
+      SystemSound.play(SystemSoundType.alert);
+    }
+  }
+
+  Future<void> _startPreheatDialog() async {
+    if (_isRunning) {
+      Fluttertoast.showToast(msg: "A session is already running.");
+      return;
     }
     if (!_inputsComplete) return;
 
+    // Begin preheat phase (hardware on while waiting)
+    _waitingForPreheat = true;
+    _preheatReady = _meetsPreheatThresholds();
+    _sendAllOn();
+
+    // Keep a local notifier so the dialog can react to _preheatReady changes
+    final readyNotifier = ValueNotifier<bool>(_preheatReady);
+
+    // Periodic sync for the ready flag while dialog is open
+    final syncTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
+      if (!mounted || !_waitingForPreheat) return;
+      readyNotifier.value = _preheatReady;
+    });
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        TextStyle t(double sz,{FontWeight? w, Color? c}) =>
+            GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+
+        return ValueListenableBuilder<bool>(
+          valueListenable: readyNotifier,
+          builder: (ctx, isReady, _) {
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    if (!isReady) ...[
+                      const SizedBox(height: 8),
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 16),
+                      Text("Initializing...", style: t(18, w: FontWeight.w800)),
+                      const SizedBox(height: 8),
+                      Text(
+                        "Please wait for a moment",
+                        textAlign: TextAlign.center,
+                        style: t(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
+                      ),
+                      const SizedBox(height: 12),
+
+                      // ── Live mirrored readouts (same as the bottom cards) ──
+                      ValueListenableBuilder<int>(
+                        valueListenable: _sensorSeq,
+                        builder: (_, __, ___) => Row(
+                          children: [
+                            Expanded(
+                              child: _metricCard(
+                                minHeight: 88,
+                                pad: 10,
+                                icon: Icons.water_drop_outlined,
+                                label: "Humidity",
+                                value: "${_humidity.toStringAsFixed(1)}%",
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _metricCard(
+                                minHeight: 88,
+                                pad: 10,
+                                icon: Icons.thermostat_outlined,
+                                label: "Temperature",
+                                value: "${_temperature.toStringAsFixed(1)}°C",
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        "Target: ≥ ${_preheatTempMin.toStringAsFixed(0)}°C and ≤ ${_preheatHumidityMax.toStringAsFixed(0)}% RH",
+                        style: t(12, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.7)),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                _waitingForPreheat = false;
+                                _preheatReady = false;
+                                _sendAllOff();
+                                Navigator.pop(ctx);
+                              },
+                              child: Text("Cancel", style: t(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 8),
+                      Icon(Icons.check_circle, size: 44, color: Colors.green),
+                      const SizedBox(height: 16),
+                      Text("You may now put your grains", style: t(18, w: FontWeight.w800)),
+                      const SizedBox(height: 8),
+                      Text(
+                        "Chamber is ready.",
+                        textAlign: TextAlign.center,
+                        style: t(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () {
+                                _waitingForPreheat = false;
+                                _preheatReady = false;
+                                _sendAllOff();
+                                Navigator.pop(ctx);
+                              },
+                              child: Text("Cancel", style: t(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: () {
+                                _waitingForPreheat = false;
+                                Navigator.pop(ctx);
+                                _beginDrying(); // start the timer here
+                              },
+                              child: Text("Start Drying", style: t(14, w: FontWeight.w700, c: Colors.white)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    // Cleanup
+    syncTimer.cancel();
+  }
+
+  // ---------------------- Session Controls ----------------------
+  bool get _inputsComplete =>
+      _selectedBracket != null && _targetMc >= 9.0 && _targetMc <= 14.0;
+
+  // Phase 2: actual drying countdown starts here (after dialog "Start Drying")
+  void _beginDrying() {
+    if (_isRunning) {
+      Fluttertoast.showToast(msg: "A session is already running.");
+      return;
+    }
     final etaMin = _computeEtaMinutes();
     if (etaMin == null) {
       Fluttertoast.showToast(msg: "Unable to compute estimated time.");
@@ -294,13 +470,12 @@ class _AutomationPageState extends State<AutomationPage>
       }
     });
 
-    // Start hardware
+    // Start/continue hardware during drying phase
     _currentOpId = OperationHistory.instance.startOperation();
-    // Log first reading (humidity)
     OperationHistory.instance.logReading(_currentOpId!, _humidity);
     _sendAllOn();
 
-    Fluttertoast.showToast(msg: "Session commenced");
+    Fluttertoast.showToast(msg: "Drying started");
   }
 
   Future<void> _finishSession({bool auto = false}) async {
@@ -378,7 +553,7 @@ class _AutomationPageState extends State<AutomationPage>
                 GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
 
             // Buttons
-            final ButtonStyle commenceStyle = ElevatedButton.styleFrom(
+            final ButtonStyle startStyle = ElevatedButton.styleFrom(
               backgroundColor: context.brand,
               foregroundColor: cs.onPrimary,
               disabledBackgroundColor: context.brand.withOpacity(0.4),
@@ -452,7 +627,7 @@ class _AutomationPageState extends State<AutomationPage>
             }
 
             Widget targetSlider() {
-              final tip = _tipForTargetMc(_targetMc); // 👈 updated mapping
+              final tip = _tipForTargetMc(_targetMc);
 
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -578,7 +753,6 @@ class _AutomationPageState extends State<AutomationPage>
             }
 
             final ringProgress = _progress;
-            // Use single fixed color for ring & dot
             final dotColor = _ringSingleColor;
 
             return Align(
@@ -607,9 +781,13 @@ class _AutomationPageState extends State<AutomationPage>
                               etaBadge(),
                               const SizedBox(height: 14),
                               ElevatedButton(
-                                style: commenceStyle,
-                                onPressed: (_inputsComplete && !_isRunning) ? _commenceSession : null,
-                                child: Text("Commence Session",
+                                style: startStyle,
+                                onPressed: (_inputsComplete && !_isRunning && !_waitingForPreheat)
+                                    ? () async {
+                                        await _startPreheatDialog();
+                                      }
+                                    : null,
+                                child: Text("Start",
                                     style: t(14, w: FontWeight.w700, c: cs.onPrimary)),
                               ),
                             ],
@@ -648,7 +826,7 @@ class _AutomationPageState extends State<AutomationPage>
                                     child: Text(
                                       _isRunning
                                           ? (_isPaused ? "Paused" : "Running")
-                                          : "Idle",
+                                          : (_waitingForPreheat ? "Initializing" : "Idle"),
                                       style: t((12 * scale).clamp(11, 15).toDouble(),
                                           w: FontWeight.w700,
                                           c: _isRunning
@@ -754,7 +932,7 @@ class _AutomationPageState extends State<AutomationPage>
                                   Expanded(
                                     child: ElevatedButton(
                                       style: stopStyle,
-                                      onPressed: _isRunning || _isPaused
+                                      onPressed: _isRunning || _waitingForPreheat || _isPaused
                                           ? () async {
                                               final cs = Theme.of(context).colorScheme;
                                               await showDialog(
@@ -782,6 +960,11 @@ class _AutomationPageState extends State<AutomationPage>
                                                     ElevatedButton(
                                                       onPressed: () {
                                                         Navigator.pop(ctx);
+                                                        if (_waitingForPreheat) {
+                                                          _waitingForPreheat = false;
+                                                          _preheatReady = false;
+                                                          _sendAllOff();
+                                                        }
                                                         _finishSession();
                                                       },
                                                       child: Text("Confirm",

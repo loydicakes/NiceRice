@@ -102,7 +102,7 @@ class _SplashScreenState extends State<SplashScreen> {
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) =>
-          const LandingPage(),
+              const LandingPage(),
           transitionsBuilder: (context, animation, secondaryAnimation, child) =>
               FadeTransition(opacity: animation, child: child),
           transitionDuration: const Duration(milliseconds: 800),
@@ -130,12 +130,12 @@ class _SplashScreenState extends State<SplashScreen> {
       body: Center(
         child: isReady
             ? SizedBox(
-          width: MediaQuery.of(context).size.width * 0.7,
-          child: AspectRatio(
-            aspectRatio: _controller.value.aspectRatio,
-            child: VideoPlayer(_controller),
-          ),
-        )
+                width: MediaQuery.of(context).size.width * 0.7,
+                child: AspectRatio(
+                  aspectRatio: _controller.value.aspectRatio,
+                  child: VideoPlayer(_controller),
+                ),
+              )
             : _InstantSplashPoster(onTapToSkip: _decideNextPage),
       ),
     );
@@ -152,13 +152,7 @@ class _InstantSplashPoster extends StatelessWidget {
       onTap: onTapToSkip,
       child: SizedBox(
         width: MediaQuery.of(context).size.width * 0.7,
-        child: AspectRatio(
-          aspectRatio: 16 / 9,
-          child: Image.asset(
-            'assets/images/splash_poster.png',
-            fit: BoxFit.cover,
-          ),
-        ),
+        child: AspectRatio(aspectRatio: 16 / 9),
       ),
     );
   }

@@ -141,6 +141,10 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         _connectedName = null;
         _connectedAddr = null;
       });
+      // 👉 publish to Automation page
+      AutomationPage.btConnected.value = false;
+      AutomationPage.btDeviceName.value = null;
+
       _toast('Device disconnected');
     }
   }
@@ -295,6 +299,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                               _connectedName = name;
                               _connectedAddr = addr;
                             });
+                            // 👉 publish to Automation page
+                            AutomationPage.btConnected.value = true;
+                            AutomationPage.btDeviceName.value = name;
                           }
                           _toast(ok ? 'Connected to $name ($addr)' : 'Failed to connect to $name');
                         } on PlatformException catch (e) {
@@ -321,7 +328,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     try {
       await _bleChannel.invokeMethod('disconnect'); // expects native side to handle gracefully
     } catch (e) {
-      // Even if native throws, still flip the UI to disconnected so user can retry
       debugPrint("❌ Disconnect error: $e");
     } finally {
       if (!mounted) return;
@@ -330,6 +336,10 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         _connectedName = null;
         _connectedAddr = null;
       });
+      // 👉 publish to Automation page
+      AutomationPage.btConnected.value = false;
+      AutomationPage.btDeviceName.value = null;
+
       _toast('Disconnected');
     }
   }
@@ -399,8 +409,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     final theme = ThemeScope.of(context);
     final now = DateTime.now();
 
-    // Pale red for the "Disconnect" state
-    final Color paleRed = const Color(0xFFF28B82); // soft red (Google-ish)
+    final Color paleRed = const Color(0xFFF28B82);
     final Color paleRedBorder = const Color(0xFFF28B82);
     final Color paleRedText = const Color(0xFFD93025);
 
@@ -450,13 +459,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                   // MOVED: Stick the date/time/button block to the RIGHT
                                   Expanded(
                                     child: Padding(
-                                      padding: const EdgeInsets.only(left: 40), // You can increase this to push it more
+                                      padding: const EdgeInsets.only(left: 40),
                                         child: Align(
                                           alignment: Alignment.centerRight,
                                           child: ConstrainedBox(
                                             constraints: BoxConstraints(
-                                              // keep a sensible max so the gap is visibly on the left
-                                              maxWidth: (box.maxWidth * 0.6).clamp(220, 480), // restrict width to push it in
+                                              maxWidth: (box.maxWidth * 0.6).clamp(220, 480),
                                             ),
                                             child: Column(
                                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -647,7 +655,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                   ClipRRect(
                                     borderRadius: BorderRadius.circular(20),
                                     child: LinearProgressIndicator(
-                                      value: prog, // 0.0–1.0 from Automation page
+                                      value: prog,
                                       minHeight: (10 * scale).clamp(8, 14).toDouble(),
                                       backgroundColor: context.progressTrack,
                                     ),
@@ -679,7 +687,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                               ),
                               const SizedBox(height: 12),
 
-                              // 2x2 grid on phones, 4 in a row on wide screens
                               LayoutBuilder(builder: (ctx, box) {
                                 final isWide = box.maxWidth >= 520;
                                 return GridView.count(
@@ -708,7 +715,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                           : "${_estMc!.toStringAsFixed(0)}%",
                                     ),
                                     _MiniStatusTile(
-                                      statusText: _storageStatus, // may be ""
+                                      statusText: _storageStatus,
                                     ),
                                   ],
                                 );
@@ -731,12 +738,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
 // ───────────────────────────── Widgets ─────────────────────────────
 
-/// Responsive metric tile
 class _MiniMetricTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-  final double scale; // kept for API compatibility, not used for sizing
+  final double scale;
 
   const _MiniMetricTile({
     required this.icon,
@@ -807,10 +813,9 @@ class _MiniMetricTile extends StatelessWidget {
   }
 }
 
-/// Responsive status tile
 class _MiniStatusTile extends StatelessWidget {
-  final String statusText; // may be blank for now
-  final double scale;      // kept for API compatibility, not used for sizing
+  final String statusText;
+  final double scale;
 
   const _MiniStatusTile({
     required this.statusText,

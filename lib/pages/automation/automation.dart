@@ -18,48 +18,42 @@ class AutomationPage extends StatefulWidget {
   static final ValueNotifier<bool> isActive = ValueNotifier<bool>(false);
   static final ValueNotifier<double> progress = ValueNotifier<double>(0.0);
 
+  /// 👉 NEW: HomePage publishes the **real** BT connection to these.
+  static final ValueNotifier<bool> btConnected = ValueNotifier<bool>(false);
+  static final ValueNotifier<String?> btDeviceName = ValueNotifier<String?>(null);
+
   @override
   State<AutomationPage> createState() => _AutomationPageState();
 }
 
 enum InitialBracket {
-  ideal, // 20-25% (ideal harvest)
-  late,  // 15-19% (late harvest - too dry)
-  early, // 26-30% (early harvest - too wet)
+  ideal,  // 20-25% (ideal harvest)
+  late,   // 15-19% (late harvest - too dry)
+  early,  // 26-30% (early harvest - too wet)
 }
 
 extension on InitialBracket {
   String get title {
     switch (this) {
-      case InitialBracket.ideal:
-        return "20–25%";
-      case InitialBracket.late:
-        return "15–19%";
-      case InitialBracket.early:
-        return "26–30%";
+      case InitialBracket.ideal: return "20–25%";
+      case InitialBracket.late:  return "15–19%";
+      case InitialBracket.early: return "26–30%";
     }
   }
 
   String get description {
     switch (this) {
-      case InitialBracket.ideal:
-        return "ideal harvest";
-      case InitialBracket.late:
-        return "late harvest (too dry)";
-      case InitialBracket.early:
-        return "early harvest (too wet)";
+      case InitialBracket.ideal: return "ideal harvest";
+      case InitialBracket.late:  return "late harvest (too dry)";
+      case InitialBracket.early: return "early harvest (too wet)";
     }
   }
 
-  /// Midpoint used for ETA computation
   double get midpoint {
     switch (this) {
-      case InitialBracket.ideal:
-        return (20 + 25) / 2.0; // 22.5
-      case InitialBracket.late:
-        return (15 + 19) / 2.0; // 17.0
-      case InitialBracket.early:
-        return (26 + 30) / 2.0; // 28.0
+      case InitialBracket.ideal: return (20 + 25) / 2.0;
+      case InitialBracket.late:  return (15 + 19) / 2.0;
+      case InitialBracket.early: return (26 + 30) / 2.0;
     }
   }
 }
@@ -73,8 +67,8 @@ class _AutomationPageState extends State<AutomationPage>
   bool get wantKeepAlive => true;
 
   // ---------------------- Session State (Countdown Timer) ----------------------
-  Timer? _ticker; // 1s heartbeat for countdown
-  Duration _sessionDuration = Duration.zero; // fixed duration computed at start
+  Timer? _ticker;
+  Duration _sessionDuration = Duration.zero;
   Duration _remaining = Duration.zero;
   bool _isPaused = false;
   bool _isRunning = false;
@@ -83,123 +77,120 @@ class _AutomationPageState extends State<AutomationPage>
   // ---------------------- Sensors ----------------------
   Timer? _sensorTimer;
   final Random _rand = Random();
-  double _humidity = 0.0; // display label: Humidity
-  double _temperature = 0.0; // °C
+  double _humidity = 0.0;
+  double _temperature = 0.0;
 
-  // Pulse for listeners (e.g., initializing dialog) to repaint on every sensor read
   final ValueNotifier<int> _sensorSeq = ValueNotifier<int>(0);
 
   // ---------------------- Target / Inputs ----------------------
-  // Slider: 9% to 14% in 0.5 steps
   double _targetMc = 14.0;
   InitialBracket? _selectedBracket;
 
-  // Calculation tuning (can be changed after testing)
-  static const double _rateMcPerMin = 0.5; // % lost per minute
+  // Remember previous settings for “start same” dialog
+  double? _prevTargetMc;
+  InitialBracket? _prevBracket;
 
-  // Persist the initial used for this session (midpoint of chosen bracket)
+  static const double _rateMcPerMin = 0.5; // % lost per minute
   double? _initialMcForSession;
 
-  // Single color for progress ring / dot (requested)
-  static const Color _ringSingleColor = Color.fromARGB(255, 63, 252, 88); // green
+  static const Color _ringSingleColor = Color.fromARGB(255, 63, 252, 88);
 
   // ---------------------- Preheat / Init Gate ----------------------
-  static const double _preheatTempMin = 35.0; // °C: ready when in 45–70°C
-  static const double _preheatTempMax = 70.0; // °C ceiling for preheat band
+  static const double _preheatTempMin = 25.0;
+  static const double _preheatTempMax = 70.0;
 
-  bool _waitingForPreheat = false; // true while the init dialog is open
-  bool _preheatReady = false; // flips to true once thresholds are met
+  bool _waitingForPreheat = false;
+  bool _preheatReady = false;
 
-  // ---------------------- Bluetooth Readiness Helpers ----------------------
-  bool _assumeBtOnIfUnknown = false; // fallback if native side not implemented
+  // ---------------------- Bluetooth helpers ----------------------
+  // If native method is missing/slow, we won't crash.
+  bool _assumeBtOnIfUnknown = true;
 
-  Future<bool> _isBluetoothOn() async {
+  // Unified safe invoker with timeout and broad error handling.
+  Future<T?> _invokeBle<T>(String method, [dynamic args]) async {
     try {
-      final on = await _bleChannel.invokeMethod<bool>('isBluetoothOn');
-      if (on == null) return _assumeBtOnIfUnknown;
-      return on;
+      final res = await _bleChannel
+          .invokeMethod<T>(method, args)
+          .timeout(const Duration(seconds: 2));
+      return res;
+    } on MissingPluginException {
+      return null;
+    } on PlatformException {
+      return null;
+    } on TimeoutException {
+      return null;
     } catch (_) {
-      // If native method missing, be conservative and block start.
-      return false;
-    }
-  }
-
-  Future<bool> _isDeviceConnected() async {
-    try {
-      final ok = await _bleChannel.invokeMethod<bool>('isConnected');
-      return ok ?? false;
-    } catch (_) {
-      return false;
+      return null;
     }
   }
 
   void _goToHome() {
-  if (!mounted) return;
-  // Make AppShell(Home tab) the root so there's nothing to go "back" to.
-  Navigator.of(context).pushNamedAndRemoveUntil(
-    '/main',
-    (route) => false,
-    arguments: 0, // Home tab index
-  );
-}
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      '/main',
+      (route) => false,
+      arguments: 0,
+    );
+  }
 
   Future<void> _showBluetoothRequiredDialog() async {
-  if (!mounted) return;
-  final cs = Theme.of(context).colorScheme;
+    if (!mounted) return;
+    final cs = Theme.of(context).colorScheme;
 
-  await showDialog(
-    context: context,
-    barrierDismissible: true,
-    builder: (ctx) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      title: Text(
-        "Connect to NiceRice on Home",
-        style: GoogleFonts.poppins(fontWeight: FontWeight.w800),
-      ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // English
-          Text(
-            "Before starting, please enable Bluetooth and connect to your NiceRice device from the Home page.",
-            style: GoogleFonts.poppins(),
-          ),
-          const SizedBox(height: 8),
-          // Tagalog translation (smaller text)
-          Text(
-            "Bago magsimula, buksan ang Bluetooth at ikonekta ang NiceRice device sa Home page.",
-            style: GoogleFonts.poppins(
-              fontSize: 12,
-              color: cs.onSurface.withOpacity(0.75),
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Connect to NiceRice on Home",
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w800),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Before starting, please enable Bluetooth and connect to your NiceRice device from the Home page.",
+              style: GoogleFonts.poppins(),
             ),
+            const SizedBox(height: 8),
+            Text(
+              "Bago magsimula, buksan ang Bluetooth at ikonekta ang NiceRice device sa Home page.",
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                color: cs.onSurface.withOpacity(0.75),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text("Cancel", style: GoogleFonts.poppins(color: cs.primary)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              _goToHome();
+            },
+            child: Text("Go to Home",
+                style: GoogleFonts.poppins(color: cs.onPrimary)),
           ),
         ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(ctx).pop(),
-          child: Text("Cancel",
-              style: GoogleFonts.poppins(color: cs.primary)),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            Navigator.of(ctx).pop();
-            _goToHome(); // routes to '/main' with index 0
-          },
-          child: Text("Go to Home",
-              style: GoogleFonts.poppins(color: cs.onPrimary)),
-        ),
-      ],
-    ),
-  );
-}
+    );
+  }
 
-  /// Gatekeeper called by Start button: ensures BT is ON and a device is connected.
+  /// 👉 UPDATED: No dependency on non-existent native "isConnected".
+  /// 1) Ensure BT is ON using `ensureBluetoothOn` (native will prompt/enable)
+  /// 2) Check `AutomationPage.btConnected` that HomePage updates.
   Future<bool> _ensureBluetoothReadyOrExplain() async {
-    final on = await _isBluetoothOn();
-    final connected = await _isDeviceConnected();
-    if (!on || !connected) {
+    final on = await _invokeBle<bool>('ensureBluetoothOn');
+    final btOn = on ?? _assumeBtOnIfUnknown;
+
+    final connected = AutomationPage.btConnected.value;
+    if (!btOn || !connected) {
       await _showBluetoothRequiredDialog();
       return false;
     }
@@ -228,15 +219,16 @@ class _AutomationPageState extends State<AutomationPage>
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
 
-    // Best-effort finalize the operation (no await in dispose)
     if (_currentOpId != null) {
       final id = _currentOpId!;
       _currentOpId = null;
       OperationHistory.instance.logReading(id, _humidity);
       // ignore: discarded_futures
       OperationHistory.instance.endOperation(id);
-      _safeAllStop(); // ensure heater/aux are off and thermostat disabled
+      // ignore: discarded_futures
+      _safeAllStop();
     } else {
+      // ignore: discarded_futures
       _safeAllStop();
     }
 
@@ -255,17 +247,15 @@ class _AutomationPageState extends State<AutomationPage>
     return h > 0 ? "$h:${two(m)}:${two(s)}" : "${two(m)}:${two(s)}";
   }
 
-  // Progress for ring: 1 - (remaining / duration)
   double get _progress {
     if (_sessionDuration.inSeconds <= 0) return 0.0;
-    final done =
-        (_sessionDuration.inSeconds - _remaining.inSeconds).clamp(0, _sessionDuration.inSeconds);
+    final done = (_sessionDuration.inSeconds - _remaining.inSeconds)
+        .clamp(0, _sessionDuration.inSeconds);
     return (done / _sessionDuration.inSeconds).clamp(0.0, 1.0);
   }
 
-  // ---------------------- Power helpers (heater-safe) ----------------------
+  // ---------------------- Power helpers ----------------------
   Future<void> _auxOn() async {
-    // Turn on only auxiliaries (fans, exhaust, etc.). Adjust to your wiring.
     await _sendCommand("ON2");
     await _sendCommand("ON3");
     await _sendCommand("ON4");
@@ -278,9 +268,8 @@ class _AutomationPageState extends State<AutomationPage>
   }
 
   Future<void> _safeAllStop() async {
-    // Ensure thermostat is disabled and heater is off
     await _sendCommand("THERMO:OFF");
-    await _sendCommand("OFF1"); // heater relay (IN1 / GPIO25)
+    await _sendCommand("OFF1");
     await _auxOff();
   }
 
@@ -311,7 +300,7 @@ class _AutomationPageState extends State<AutomationPage>
             _humidity = h!;
             _temperature = t!;
           });
-          _sensorSeq.value++; // tick listeners (e.g., dialog) to repaint with fresh values
+          _sensorSeq.value++;
           _maybeMarkPreheatReady();
         }
       }
@@ -321,50 +310,36 @@ class _AutomationPageState extends State<AutomationPage>
   Future<void> _handleBluetoothData(MethodCall call) async {
     if (call.method == "onDataReceived") {
       final String data = call.arguments.toString().trim();
-
-      // Parse sensors first
       _parseDhtResponse(data);
 
-      // Parse events / ACKs line-by-line
       for (final line in data.split(RegExp(r'[\r\n]+'))) {
         final msg = line.trim();
         if (msg.isEmpty) continue;
 
         if (msg == "EVENT:COUNTDOWN_START") {
-          // Just leave initializing state; timer starts only when user pressed "Start Drying"
           if (_waitingForPreheat) {
             setState(() => _waitingForPreheat = false);
           }
-          // Do NOT call _beginDrying() here anymore.
         } else if (msg == "EVENT:COUNTDOWN_DONE") {
           if (_isRunning) _finishSession(auto: true);
         } else if (msg == "EVENT:SAFETY_STOP") {
           Fluttertoast.showToast(msg: "Safety stop triggered by device");
           if (_isRunning) _finishSession();
         }
-        // Optional: show ACKs for debugging
-        // else if (msg.startsWith("ACK:")) Fluttertoast.showToast(msg: msg);
       }
     }
   }
 
   Future<void> _sendCommand(String command) async {
-    try {
-      final response =
-          await _bleChannel.invokeMethod<String>('sendData', {'data': command});
-      if (response != null) {
-        _parseDhtResponse(response);
-      }
-    } catch (e) {
-      Fluttertoast.showToast(msg: "Bluetooth error: $e");
+    final response = await _invokeBle<String>('sendData', {'data': command});
+    if (response != null) {
+      _parseDhtResponse(response);
     }
   }
 
-  // Sends preset, target MC, ETA, and enables thermostat on the device
   Future<void> _sendInitToDevice() async {
     if (_selectedBracket == null) return;
 
-    // 1) Preset (maps to ESP32 preset temps)
     switch (_selectedBracket!) {
       case InitialBracket.ideal:
         await _sendCommand("MODE:IDEAL");
@@ -377,22 +352,18 @@ class _AutomationPageState extends State<AutomationPage>
         break;
     }
 
-    // 2) Target Moisture Content
     await _sendCommand("SET:TARGET_MC=${_targetMc.toStringAsFixed(1)}");
 
-    // 3) ETA minutes
     final etaMin = _computeEtaMinutes();
     if (etaMin != null) {
       final etaRounded = etaMin.clamp(0, 9999).toStringAsFixed(1);
       await _sendCommand("SET:ETA_MIN=$etaRounded");
     }
 
-    // 4) Enable thermostat (heater controlled by ESP32; app does not toggle ON1)
     await _sendCommand("THERMO:ON");
   }
 
   // --------------- ETA Computation ---------------
-  /// Returns ETA in minutes (double). If not computable, returns null.
   double? _computeEtaMinutes() {
     if (_selectedBracket == null) return null;
     final initialMid = _selectedBracket!.midpoint;
@@ -418,15 +389,13 @@ class _AutomationPageState extends State<AutomationPage>
 
   // ---------------------- Preheat / Init Flow ----------------------
   bool _meetsPreheatThresholds() {
-    // user can load paddy when temp is within 45–70°C
     return _temperature >= _preheatTempMin && _temperature < _preheatTempMax;
-  }
+    }
 
   void _maybeMarkPreheatReady() {
     if (!_waitingForPreheat || _preheatReady) return;
     if (_meetsPreheatThresholds()) {
       setState(() => _preheatReady = true);
-      // Play a simple system "ting"
       SystemSound.play(SystemSoundType.alert);
     }
   }
@@ -438,15 +407,12 @@ class _AutomationPageState extends State<AutomationPage>
     }
     if (!_inputsComplete) return;
 
-    // Begin preheat phase (aux on; heater controlled by thermostat)
     _waitingForPreheat = true;
     _preheatReady = _meetsPreheatThresholds();
     await _auxOn();
 
-    // Keep a local notifier so the dialog can react to _preheatReady changes
     final readyNotifier = ValueNotifier<bool>(_preheatReady);
 
-    // Periodic sync for the ready flag while dialog is open
     final syncTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
       if (!mounted || !_waitingForPreheat) return;
       readyNotifier.value = _preheatReady;
@@ -488,7 +454,6 @@ class _AutomationPageState extends State<AutomationPage>
                       ),
                       const SizedBox(height: 12),
 
-                      // ── Live mirrored readouts (same as the bottom cards) ──
                       ValueListenableBuilder<int>(
                         valueListenable: _sensorSeq,
                         builder: (_, __, ___) => Row(
@@ -579,11 +544,7 @@ class _AutomationPageState extends State<AutomationPage>
                               onPressed: () async {
                                 _waitingForPreheat = false;
                                 Navigator.pop(ctx);
-
-                                // 1) Tell device to arm/start its side
                                 await _sendCommand("ARM:COUNTDOWN");
-
-                                // 2) Start OUR session timer immediately (user action = source of truth)
                                 if (!_isRunning) _beginDrying();
                               },
                               child: Text("Start Drying",
@@ -603,7 +564,6 @@ class _AutomationPageState extends State<AutomationPage>
       },
     );
 
-    // Cleanup
     syncTimer.cancel();
   }
 
@@ -611,7 +571,13 @@ class _AutomationPageState extends State<AutomationPage>
   bool get _inputsComplete =>
       _selectedBracket != null && _targetMc >= 9.0 && _targetMc <= 14.0;
 
-  // Phase 2: actual drying countdown (UI mirror). Device owns the real timer.
+  String get _prevSettingText {
+    if (_prevBracket == null || _prevTargetMc == null) return "";
+    final b = _prevBracket!;
+    final m = _prevTargetMc!;
+    return "${b.title} • ${b.description} • ${m.toStringAsFixed(1)}% target";
+  }
+
   void _beginDrying() {
     if (_isRunning) {
       Fluttertoast.showToast(msg: "A session is already running.");
@@ -622,6 +588,10 @@ class _AutomationPageState extends State<AutomationPage>
       Fluttertoast.showToast(msg: "Unable to compute estimated time.");
       return;
     }
+
+    // remember settings for next time
+    _prevBracket = _selectedBracket;
+    _prevTargetMc = _targetMc;
 
     final totalSeconds = (etaMin * 60).ceil();
     setState(() {
@@ -648,12 +618,10 @@ class _AutomationPageState extends State<AutomationPage>
       AutomationPage.progress.value = _progress;
 
       if (_remaining == Duration.zero) {
-        // Wait for device EVENT:COUNTDOWN_DONE to truly end hardware
         _finishSession(auto: true);
       }
     });
 
-    // Start/continue aux hardware during drying phase (heater remains thermostat-controlled)
     _currentOpId = OperationHistory.instance.startOperation();
     OperationHistory.instance.logReading(_currentOpId!, _humidity);
     _auxOn();
@@ -690,16 +658,91 @@ class _AutomationPageState extends State<AutomationPage>
 
   void _pause() {
     if (!_isRunning || _isPaused) return;
-    setState(() {
-      _isPaused = true;
-    });
+    setState(() => _isPaused = true);
   }
 
   void _resume() {
     if (!_isRunning || !_isPaused) return;
-    setState(() {
-      _isPaused = false;
-    });
+    setState(() => _isPaused = false);
+  }
+
+  Future<void> _showStartWithPreviousDialog() async {
+    if (_prevBracket == null || _prevTargetMc == null) {
+      Fluttertoast.showToast(msg: "No previous settings found.");
+      return;
+    }
+    final cs = Theme.of(context).colorScheme;
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          "Start New Session",
+          style: GoogleFonts.poppins(
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: cs.onSurface,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              "Start a new session using the previous settings?",
+              style: GoogleFonts.poppins(
+                  fontSize: 14, color: cs.onSurface.withOpacity(0.85)),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _prevSettingText,
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: cs.onSurface.withOpacity(0.8),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              "Cancel",
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: context.brand,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(ctx);
+              setState(() {
+                _selectedBracket = _prevBracket;
+                _targetMc = _prevTargetMc ?? _targetMc;
+              });
+
+              final ok = await _ensureBluetoothReadyOrExplain();
+              if (!ok) return;
+
+              await _sendInitToDevice();
+              await _startPreheatDialog();
+            },
+            child: Text(
+              "Confirm",
+              style: GoogleFonts.poppins(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: cs.onPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ---------------------- Build ----------------------
@@ -721,10 +764,8 @@ class _AutomationPageState extends State<AutomationPage>
             final bool isTablet = maxW >= 700;
             final double scale = _scaleForWidth(maxW);
 
-            // Content max width on wide screens
             final double contentMaxWidth = isTablet ? 860.0 : 600.0;
 
-            // Scaled sizes
             final double cardPad = (16 * scale).clamp(12, 22).toDouble();
             final double tileMinH = (140 * scale).clamp(120, 180).toDouble();
             final double timerSide =
@@ -734,12 +775,10 @@ class _AutomationPageState extends State<AutomationPage>
             final double dotSize = (18 * scale).clamp(14, 24).toDouble();
             final double bigText = (48 * scale).clamp(36, 64).toDouble();
 
-            // Typo helper
             TextStyle t(double sz, {FontWeight? w, Color? c}) =>
                 GoogleFonts.poppins(
                     fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
 
-            // Buttons
             final ButtonStyle startStyle = ElevatedButton.styleFrom(
               backgroundColor: context.brand,
               foregroundColor: cs.onPrimary,
@@ -756,7 +795,7 @@ class _AutomationPageState extends State<AutomationPage>
             );
 
             final ButtonStyle pauseStyle = ElevatedButton.styleFrom(
-              backgroundColor: Colors.amber.shade700, // yellow
+              backgroundColor: Colors.amber.shade700,
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
@@ -768,7 +807,7 @@ class _AutomationPageState extends State<AutomationPage>
             );
 
             final ButtonStyle playStyle = ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2E7D32), // green
+              backgroundColor: const Color(0xFF2E7D32),
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
@@ -780,7 +819,7 @@ class _AutomationPageState extends State<AutomationPage>
             );
 
             final ButtonStyle stopStyle = ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFC62828), // red
+              backgroundColor: const Color(0xFFC62828),
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
@@ -824,8 +863,7 @@ class _AutomationPageState extends State<AutomationPage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text("Target Moisture Content",
-                      style:
-                          t(16, w: FontWeight.w700, c: context.brand)),
+                      style: t(16, w: FontWeight.w700, c: context.brand)),
                   SizedBox(height: (10 * scale).clamp(6, 12).toDouble()),
                   Row(
                     children: [
@@ -838,7 +876,7 @@ class _AutomationPageState extends State<AutomationPage>
                           value: _targetMc,
                           min: 9.0,
                           max: 14.0,
-                          divisions: 10, // 0.5% steps
+                          divisions: 10,
                           label: "${_targetMc.toStringAsFixed(1)}%",
                           onChanged: (v) {
                             setState(() =>
@@ -873,8 +911,8 @@ class _AutomationPageState extends State<AutomationPage>
                     onTap: () => setState(() => _selectedBracket = b),
                     borderRadius: BorderRadius.circular(16),
                     child: Container(
-                      padding: EdgeInsets.all(
-                          (12 * scale).clamp(10, 18).toDouble()),
+                      padding:
+                          EdgeInsets.all((12 * scale).clamp(10, 18).toDouble()),
                       decoration: BoxDecoration(
                         color: bg,
                         borderRadius: BorderRadius.circular(16),
@@ -909,8 +947,7 @@ class _AutomationPageState extends State<AutomationPage>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text("Initial Moisture Content",
-                      style:
-                          t(16, w: FontWeight.w700, c: context.brand)),
+                      style: t(16, w: FontWeight.w700, c: context.brand)),
                   SizedBox(height: (10 * scale).clamp(6, 12).toDouble()),
                   Row(
                     children: [
@@ -970,7 +1007,56 @@ class _AutomationPageState extends State<AutomationPage>
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      // ───────── Input Card (pre-session fields) ─────────
+                      // ───────── Optional inline banner to restart with previous ─────────
+                      if (_prevBracket != null &&
+                          _prevTargetMc != null &&
+                          !_isRunning &&
+                          !_waitingForPreheat) ...[
+                        Card(
+                          child: Padding(
+                            padding: EdgeInsets.all(cardPad),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text("Start New Session",
+                                          style: t(
+                                              (16 * scale)
+                                                  .clamp(14, 20)
+                                                  .toDouble(),
+                                              w: FontWeight.w700,
+                                              c: context.brand)),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        "Use previous settings:\n$_prevSettingText",
+                                        style: t(12,
+                                            w: FontWeight.w600,
+                                            c: cs.onSurface.withOpacity(0.8)),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                ElevatedButton(
+                                  style: startStyle,
+                                  onPressed: _showStartWithPreviousDialog,
+                                  child: Text(
+                                    "Start same",
+                                    style: t(14,
+                                        w: FontWeight.w700, c: cs.onPrimary),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+
+                      // ───────── Input Card ─────────
                       Card(
                         child: Padding(
                           padding: EdgeInsets.all(cardPad),
@@ -995,11 +1081,9 @@ class _AutomationPageState extends State<AutomationPage>
                                         !_isRunning &&
                                         !_waitingForPreheat)
                                     ? () async {
-                                        // Bluetooth readiness guard
                                         final ok = await _ensureBluetoothReadyOrExplain();
                                         if (!ok) return;
 
-                                        // Existing behavior
                                         await _sendInitToDevice();
                                         await _startPreheatDialog();
                                       }
@@ -1016,7 +1100,7 @@ class _AutomationPageState extends State<AutomationPage>
 
                       const SizedBox(height: 14),
 
-                      // ───────── Session Tracker Card (countdown + metrics below) ─────────
+                      // ───────── Session Tracker Card ─────────
                       Card(
                         child: Padding(
                           padding: EdgeInsets.all(cardPad),
@@ -1073,7 +1157,6 @@ class _AutomationPageState extends State<AutomationPage>
                               ),
                               const SizedBox(height: 12),
 
-                              // Circular progress based on countdown
                               LayoutBuilder(builder: (_, __) {
                                 final double side = timerSide;
                                 return SizedBox(
@@ -1089,10 +1172,9 @@ class _AutomationPageState extends State<AutomationPage>
                                           progress: ringProgress,
                                           track: ringTrack,
                                           stroke: ringStroke,
-                                          color: _ringSingleColor, // single color ring
+                                          color: _ringSingleColor,
                                         ),
                                       ),
-                                      // Moving dot at the tip of the arc
                                       Transform.rotate(
                                         angle: 2 * math.pi * ringProgress,
                                         child: Align(
@@ -1107,19 +1189,18 @@ class _AutomationPageState extends State<AutomationPage>
                                                 BoxShadow(
                                                   color: dotColor
                                                       .withOpacity(0.45),
-                                                  blurRadius: (10 * scale)
-                                                      .clamp(6, 14)
-                                                      .toDouble(),
-                                                  spreadRadius: (2 * scale)
-                                                      .clamp(1, 3)
-                                                      .toDouble(),
+                                                  blurRadius:
+                                                      (10 * scale).clamp(6, 14)
+                                                          .toDouble(),
+                                                  spreadRadius:
+                                                      (2 * scale).clamp(1, 3)
+                                                          .toDouble(),
                                                 ),
                                               ],
                                             ),
                                           ),
                                         ),
                                       ),
-                                      // Center readout (remaining time + target info)
                                       Column(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
@@ -1150,10 +1231,8 @@ class _AutomationPageState extends State<AutomationPage>
                               }),
 
                               SizedBox(
-                                  height: (16 * scale)
-                                      .clamp(12, 22)
-                                      .toDouble()),
-                              // Controls: only Pause/Play and Stop while running (UI only)
+                                  height:
+                                      (16 * scale).clamp(12, 22).toDouble()),
                               Row(
                                 children: [
                                   Expanded(
@@ -1195,31 +1274,36 @@ class _AutomationPageState extends State<AutomationPage>
                                                             16),
                                                   ),
                                                   title: Text("Stop Session",
-                                                      style: GoogleFonts.poppins(
-                                                          fontSize: 18,
-                                                          fontWeight:
-                                                              FontWeight.w700,
-                                                          color:
-                                                              cs.onSurface)),
+                                                      style:
+                                                          GoogleFonts.poppins(
+                                                              fontSize: 18,
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                              color: cs
+                                                                  .onSurface)),
                                                   content: Text(
                                                       "You are about to stop the current session.",
-                                                      style: GoogleFonts.poppins(
-                                                          fontSize: 14,
-                                                          color: cs.onSurface
-                                                              .withOpacity(
-                                                                  0.85))),
+                                                      style:
+                                                          GoogleFonts.poppins(
+                                                              fontSize: 14,
+                                                              color: cs
+                                                                  .onSurface
+                                                                  .withOpacity(
+                                                                      0.85))),
                                                   actions: [
                                                     TextButton(
                                                       onPressed: () =>
                                                           Navigator.pop(ctx),
                                                       child: Text("Cancel",
-                                                          style: GoogleFonts.poppins(
-                                                              fontSize: 14,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w600,
-                                                              color: context
-                                                                  .brand)),
+                                                          style: GoogleFonts
+                                                              .poppins(
+                                                                  fontSize: 14,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .w600,
+                                                                  color: context
+                                                                      .brand)),
                                                     ),
                                                     ElevatedButton(
                                                       onPressed: () {
@@ -1258,9 +1342,8 @@ class _AutomationPageState extends State<AutomationPage>
                                 ],
                               ),
                               SizedBox(
-                                  height: (16 * scale)
-                                      .clamp(12, 22)
-                                      .toDouble()),
+                                  height:
+                                      (16 * scale).clamp(12, 22).toDouble()),
                               metricRow(),
                             ],
                           ),
@@ -1298,7 +1381,7 @@ class _AutomationPageState extends State<AutomationPage>
         textBuilder: ({
           double? size,
           FontWeight? weight,
-          Color color = const Color(0x00000000), // sentinel; use onSurface if transparent
+          Color color = const Color(0x00000000),
           double? height,
           TextDecoration? deco,
         }) {
@@ -1389,10 +1472,10 @@ class _MetricBox extends StatelessWidget {
   }
 }
 
-// ───────────────────────────── Painter (progress to target) ─────────────────────────────
+// ───────────────────────────── Painter ─────────────────────────────
 class _TargetRingPainter extends CustomPainter {
   final BuildContext context;
-  final double progress; // 0.0 → 1.0
+  final double progress;
   final double track;
   final double stroke;
   final Color color;
@@ -1417,18 +1500,16 @@ class _TargetRingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke;
 
     final progressPaint = Paint()
-      ..color = color // single, fixed color
+      ..color = color
       ..strokeWidth = stroke
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
-    // Base ring
     canvas.drawCircle(center, radius, base);
 
-    // Progress arc
     final sweep = 2 * math.pi * progress;
     final rect = Rect.fromCircle(center: center, radius: radius);
-    final startAngle = -math.pi / 2; // start at top
+    final startAngle = -math.pi / 2;
     if (sweep > 0) {
       canvas.drawArc(rect, startAngle, sweep, false, progressPaint);
     }
@@ -1441,4 +1522,3 @@ class _TargetRingPainter extends CustomPainter {
       old.stroke != stroke ||
       old.color != color;
 }
-

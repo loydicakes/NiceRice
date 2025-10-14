@@ -15,7 +15,7 @@ class PageHeader extends StatefulWidget implements PreferredSizeWidget {
     this.profileIconSize = 18,
     this.isDarkMode = false,
     this.onThemeChanged,
-    this.topBezelPadding = 20, // NEW: add space above the title row
+    this.topBezelPadding = 20,
   });
 
   final double logoScale;
@@ -23,19 +23,16 @@ class PageHeader extends StatefulWidget implements PreferredSizeWidget {
   final double profileIconSize;
   final bool isDarkMode;
   final ValueChanged<bool>? onThemeChanged;
-
-  /// Extra top padding inside the AppBar (useful for phone bezel/notch).
   final double topBezelPadding;
 
   @override
   State<PageHeader> createState() => _PageHeaderState();
 
   @override
-  Size get preferredSize => Size.fromHeight(kToolbarHeight + topBezelPadding); // NEW
+  Size get preferredSize => Size.fromHeight(kToolbarHeight + topBezelPadding);
 }
 
 class _PageHeaderState extends State<PageHeader> {
-
   final LayerLink _profileLink = LayerLink();
   final GlobalKey _profileTargetKey = GlobalKey();
   OverlayEntry? _profilePopup;
@@ -75,7 +72,6 @@ class _PageHeaderState extends State<PageHeader> {
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     if (!mounted) return;
-    // Match your existing pattern elsewhere
     Navigator.of(context, rootNavigator: true)
         .pushNamedAndRemoveUntil('/landing', (r) => false);
   }
@@ -83,7 +79,7 @@ class _PageHeaderState extends State<PageHeader> {
   void _openProfilePopup() {
     if (_profilePopup != null) return;
 
-    final overlay = Overlay.of(context, rootOverlay: true)!;
+    final overlay = Overlay.of(context)!; // use route overlay so dialogs appear on top
     final mq = MediaQuery.of(context);
     final Size screen = mq.size;
     final EdgeInsets viewPadding = mq.viewPadding;
@@ -170,15 +166,13 @@ class _PageHeaderState extends State<PageHeader> {
     final double avatarSize = width < 360 ? 32.0 : 36.0;
 
     return AppBar(
+      automaticallyImplyLeading: false, // ← disables back button
       backgroundColor:
           theme.appBarTheme.backgroundColor ?? theme.scaffoldBackgroundColor,
       surfaceTintColor: Colors.transparent,
       elevation: 0,
       scrolledUnderElevation: 0,
-
-      // NEW: increase usable height so we can add real top space inside
       toolbarHeight: kToolbarHeight + widget.topBezelPadding,
-
       systemOverlayStyle:
           (isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark)
               .copyWith(
@@ -186,8 +180,6 @@ class _PageHeaderState extends State<PageHeader> {
             theme.appBarTheme.backgroundColor ?? theme.scaffoldBackgroundColor,
       ),
       titleSpacing: 0,
-
-      // NEW: push the title row down by topBezelPadding without affecting baseline
       title: SafeArea(
         bottom: false,
         minimum: EdgeInsets.only(top: widget.topBezelPadding),
@@ -208,15 +200,18 @@ class _PageHeaderState extends State<PageHeader> {
                 ),
               ),
               Expanded(
-                child: Text(
-                  'NiceRice',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: context.brand,
-                    height: 1.1,
+                child: Transform.translate(
+                  offset: const Offset(0, -4), // tweak: -2, -4, -6 etc.
+                  child: Text(
+                    'NiceRice',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: context.brand,
+                      height: 1.1,
+                    ),
                   ),
                 ),
               ),
@@ -224,11 +219,10 @@ class _PageHeaderState extends State<PageHeader> {
           ),
         ),
       ),
-
       actions: [
         SafeArea(
           bottom: false,
-          minimum: EdgeInsets.only(top: widget.topBezelPadding), // align with title
+          minimum: EdgeInsets.only(top: widget.topBezelPadding),
           child: CompositedTransformTarget(
             key: _profileTargetKey,
             link: _profileLink,
@@ -337,8 +331,16 @@ class _ProfilePanelState extends State<_ProfilePanel> {
   }
 
   void _editName() {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(const SnackBar(content: Text('Edit name – TODO')));
+    // Capture a safe context that will still be valid after we close the overlay.
+    final BuildContext safeContext =
+        Navigator.of(context, rootNavigator: true).overlay!.context;
+
+    widget.onClose(); // removes the overlay entry (this widget gets disposed)
+
+    // Post-frame so removal completes, then open the dialog with the safe context.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _showEditNameDialog(safeContext);
+    });
   }
 
   @override
@@ -426,19 +428,6 @@ class _ProfilePanelState extends State<_ProfilePanel> {
                     ),
                     onTap: _editName,
                   ),
-                  ListTile(
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8),
-                    leading: Icon(Icons.image_outlined, color: cs.onSurface),
-                    title: Text(
-                      "Edit photo",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface),
-                    ),
-                    onTap: _editPhoto,
-                  ),
                 ],
 
                 if (!signedIn) ...[
@@ -503,6 +492,256 @@ class _ProfilePanelState extends State<_ProfilePanel> {
                     ),
                     onTap: _logout,
                   ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ===== Edit Name Dialog =====
+  Future<void> _showEditNameDialog(BuildContext context) async {
+    final u = _user;
+    if (u == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please sign in to edit your name.')),
+      );
+      return;
+    }
+
+    // Preload existing values from Firestore/Auth
+    String first = '';
+    String last = '';
+    try {
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(u.uid).get();
+      final data = doc.data();
+      first = (data?['firstName'] as String?)?.trim() ?? '';
+      last = (data?['lastName'] as String?)?.trim() ?? '';
+      if (first.isEmpty && (u.displayName ?? '').trim().isNotEmpty) {
+        final parts = u.displayName!.trim().split(' ');
+        first = parts.first;
+        if (parts.length > 1) {
+          last = parts.sublist(1).join(' ');
+        }
+      }
+    } catch (_) {}
+
+    await showGeneralDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Edit name',
+      barrierColor: Colors.black54,
+      useRootNavigator: true,           // <- add this
+      pageBuilder: (ctx, anim1, anim2) {
+        return Center(
+          child: _EditNameDialog(
+            initialFirst: first,
+            initialLast: last,
+            brand: context.brand,
+            onSaved: (f, l) async {
+              // Save to Firestore and Auth
+              final payload = <String, dynamic>{
+                'firstName': f,
+                'lastName': l,
+                'updatedAt': FieldValue.serverTimestamp(),
+              };
+              await FirebaseFirestore.instance
+                  .collection('users')
+                  .doc(u.uid)
+                  .set(payload, SetOptions(merge: true));
+
+              try {
+                await u.updateDisplayName(
+                    (f.trim() + ' ' + l.trim()).trim());
+              } catch (_) {}
+
+              if (mounted) setState(() {}); // refresh greeting
+            },
+          ),
+        );
+      },
+      transitionBuilder: (ctx, anim, _, child) {
+        final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+        return Transform.scale(
+          scale: 0.96 + 0.04 * curved.value,
+          child: Opacity(opacity: curved.value, child: child),
+        );
+      },
+    );
+  }
+}
+
+// ================= EDIT NAME DIALOG WIDGET =================
+
+class _EditNameDialog extends StatefulWidget {
+  const _EditNameDialog({
+    required this.initialFirst,
+    required this.initialLast,
+    required this.brand,
+    required this.onSaved,
+  });
+
+  final String initialFirst;
+  final String initialLast;
+  final Color brand;
+  final Future<void> Function(String first, String last) onSaved;
+
+  @override
+  State<_EditNameDialog> createState() => _EditNameDialogState();
+}
+
+class _EditNameDialogState extends State<_EditNameDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _first = TextEditingController(text: widget.initialFirst);
+  late final TextEditingController _last = TextEditingController(text: widget.initialLast);
+  bool _saving = false;
+
+  OutlineInputBorder _border(Color c) => OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: BorderSide(color: c, width: 2),
+      );
+
+  @override
+  void dispose() {
+    _first.dispose();
+    _last.dispose();
+    super.dispose();
+  }
+
+  Future<void> _confirm() async {
+    final valid = _formKey.currentState?.validate() ?? false;
+    if (!valid) return;
+    setState(() => _saving = true);
+    try {
+      await widget.onSaved(_first.text.trim(), _last.text.trim());
+      if (mounted) Navigator.of(context, rootNavigator: true).pop(); // close
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to save name: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final brand = widget.brand;
+
+    return Material(
+      color: Colors.transparent,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Container(
+          margin: const EdgeInsets.symmetric(horizontal: 20),
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: const [
+              BoxShadow(blurRadius: 24, color: Colors.black26, offset: Offset(0, 12)),
+            ],
+          ),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Edit Name',
+                  style: GoogleFonts.poppins(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: cs.onSurface,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Update your first and last name.',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    color: cs.onSurface.withOpacity(.75),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                // First Name
+                TextFormField(
+                  controller: _first,
+                  textInputAction: TextInputAction.next,
+                  cursorColor: brand,
+                  style: const TextStyle(color: Colors.black),
+                  decoration: InputDecoration(
+                    labelText: 'First name',
+                    filled: true,
+                    fillColor: Colors.white,
+                    labelStyle: const TextStyle(color: Colors.black87),
+                    hintStyle: const TextStyle(color: Colors.black54),
+                    enabledBorder: _border(brand),
+                    focusedBorder: _border(brand),
+                    errorBorder: _border(Colors.red),
+                    focusedErrorBorder: _border(Colors.red),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  ),
+                  validator: (v) =>
+                      (v == null || v.trim().isEmpty) ? 'First name is required' : null,
+                ),
+                const SizedBox(height: 12),
+                // Last Name
+                TextFormField(
+                  controller: _last,
+                  textInputAction: TextInputAction.done,
+                  cursorColor: brand,
+                  style: const TextStyle(color: Colors.black),
+                  decoration: InputDecoration(
+                    labelText: 'Last name',
+                    filled: true,
+                    fillColor: Colors.white,
+                    labelStyle: const TextStyle(color: Colors.black87),
+                    hintStyle: const TextStyle(color: Colors.black54),
+                    enabledBorder: _border(brand),
+                    focusedBorder: _border(brand),
+                    errorBorder: _border(Colors.red),
+                    focusedErrorBorder: _border(Colors.red),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    TextButton(
+                      onPressed:
+                          _saving ? null : () => Navigator.of(context, rootNavigator: true).pop(),
+                      child: Text('Cancel',
+                          style: GoogleFonts.poppins(
+                            fontWeight: FontWeight.w600,
+                            color: brand,
+                          )),
+                    ),
+                    ElevatedButton(
+                      onPressed: _saving ? null : _confirm,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: brand,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        elevation: 0,
+                      ),
+                      child: _saving
+                          ? SizedBox(
+                              height: 18,
+                              width: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                            )
+                          : Text('Confirm',
+                              style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),

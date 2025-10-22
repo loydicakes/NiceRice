@@ -11,6 +11,9 @@ import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart'; // ThemeScope + context.brand
 import 'package:nice_rice/data/operation_history.dart';
 
+// ⬇️ Localizations
+import 'package:nice_rice/l10n/app_localizations.dart';
+
 class AutomationPage extends StatefulWidget {
   const AutomationPage({super.key});
 
@@ -18,7 +21,7 @@ class AutomationPage extends StatefulWidget {
   static final ValueNotifier<bool> isActive = ValueNotifier<bool>(false);
   static final ValueNotifier<double> progress = ValueNotifier<double>(0.0);
 
-  /// 👉 NEW: HomePage publishes the **real** BT connection to these.
+  /// 👉 HomePage publishes the **real** BT connection to these.
   static final ValueNotifier<bool> btConnected = ValueNotifier<bool>(false);
   static final ValueNotifier<String?> btDeviceName = ValueNotifier<String?>(null);
 
@@ -33,7 +36,7 @@ enum InitialBracket {
 }
 
 extension on InitialBracket {
-  String get title {
+  String title(AppLocalizations t) {
     switch (this) {
       case InitialBracket.ideal: return "20–25%";
       case InitialBracket.late:  return "15–19%";
@@ -41,11 +44,11 @@ extension on InitialBracket {
     }
   }
 
-  String get description {
+  String description(AppLocalizations t) {
     switch (this) {
-      case InitialBracket.ideal: return "ideal harvest";
-      case InitialBracket.late:  return "late harvest (too dry)";
-      case InitialBracket.early: return "early harvest (too wet)";
+      case InitialBracket.ideal: return t.bracketIdeal;
+      case InitialBracket.late:  return t.bracketLate;
+      case InitialBracket.early: return t.bracketEarly;
     }
   }
 
@@ -76,7 +79,6 @@ class _AutomationPageState extends State<AutomationPage>
 
   // ---------------------- Sensors ----------------------
   Timer? _sensorTimer;
-  final Random _rand = Random();
   double _humidity = 0.0;
   double _temperature = 0.0;
 
@@ -103,10 +105,8 @@ class _AutomationPageState extends State<AutomationPage>
   bool _preheatReady = false;
 
   // ---------------------- Bluetooth helpers ----------------------
-  // If native method is missing/slow, we won't crash.
   bool _assumeBtOnIfUnknown = true;
 
-  // Unified safe invoker with timeout and broad error handling.
   Future<T?> _invokeBle<T>(String method, [dynamic args]) async {
     try {
       final res = await _bleChannel
@@ -136,6 +136,7 @@ class _AutomationPageState extends State<AutomationPage>
   Future<void> _showBluetoothRequiredDialog() async {
     if (!mounted) return;
     final cs = Theme.of(context).colorScheme;
+    final t = AppLocalizations.of(context)!;
 
     await showDialog(
       context: context,
@@ -143,48 +144,43 @@ class _AutomationPageState extends State<AutomationPage>
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          "Connect to NiceRice on Home",
+          t.connectToHomeTitle,
           style: GoogleFonts.poppins(fontWeight: FontWeight.w800),
         ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              "Before starting, please enable Bluetooth and connect to your NiceRice device from the Home page.",
-              style: GoogleFonts.poppins(),
-            ),
+            Text(t.connectToHomeBody, style: GoogleFonts.poppins()),
             const SizedBox(height: 8),
-            Text(
-              "Bago magsimula, buksan ang Bluetooth at ikonekta ang NiceRice device sa Home page.",
-              style: GoogleFonts.poppins(
-                fontSize: 12,
-                color: cs.onSurface.withOpacity(0.75),
-              ),
-            ),
+            // 🔕 Removed per request: secondary translation line
+            // Text(
+            //   t.connectToHomeBodyAlt,
+            //   style: GoogleFonts.poppins(
+            //     fontSize: 12,
+            //     color: cs.onSurface.withOpacity(0.75),
+            //   ),
+            // ),
           ],
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text("Cancel", style: GoogleFonts.poppins(color: cs.primary)),
+            child: Text(t.cancel, style: GoogleFonts.poppins(color: cs.primary)),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.of(ctx).pop();
               _goToHome();
             },
-            child: Text("Go to Home",
-                style: GoogleFonts.poppins(color: cs.onPrimary)),
+            child: Text(t.goToHome, style: GoogleFonts.poppins(color: cs.onPrimary)),
           ),
         ],
       ),
     );
   }
 
-  /// 👉 UPDATED: No dependency on non-existent native "isConnected".
-  /// 1) Ensure BT is ON using `ensureBluetoothOn` (native will prompt/enable)
-  /// 2) Check `AutomationPage.btConnected` that HomePage updates.
+  /// 1) Ensure BT is ON  2) Check AutomationPage.btConnected
   Future<bool> _ensureBluetoothReadyOrExplain() async {
     final on = await _invokeBle<bool>('ensureBluetoothOn');
     final btOn = on ?? _assumeBtOnIfUnknown;
@@ -200,8 +196,6 @@ class _AutomationPageState extends State<AutomationPage>
   @override
   void initState() {
     super.initState();
-
-    // Register method call handler
     _bleChannel.setMethodCallHandler(_handleBluetoothData);
 
     // Poll environment sensor every 3s
@@ -223,13 +217,10 @@ class _AutomationPageState extends State<AutomationPage>
       final id = _currentOpId!;
       _currentOpId = null;
       OperationHistory.instance.logReading(id, _humidity);
-      // ignore: discarded_futures
-      OperationHistory.instance.endOperation(id);
-      // ignore: discarded_futures
-      _safeAllStop();
+      OperationHistory.instance.endOperation(id); // ignore: discarded_futures
+      _safeAllStop(); // ignore: discarded_futures
     } else {
-      // ignore: discarded_futures
-      _safeAllStop();
+      _safeAllStop(); // ignore: discarded_futures
     }
 
     super.dispose();
@@ -239,12 +230,15 @@ class _AutomationPageState extends State<AutomationPage>
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25);
 
   String _fmtDuration(Duration d) {
+    final t = AppLocalizations.of(context)!;
     if (d.isNegative) return "00:00";
     final h = d.inHours;
     final m = d.inMinutes.remainder(60);
     final s = d.inSeconds.remainder(60);
     String two(int n) => n.toString().padLeft(2, "0");
-    return h > 0 ? "$h:${two(m)}:${two(s)}" : "${two(m)}:${two(s)}";
+    return h > 0
+        ? "$h:${two(m)}:${two(s)}"
+        : "${two(m)}:${two(s)}";
   }
 
   double get _progress {
@@ -308,6 +302,8 @@ class _AutomationPageState extends State<AutomationPage>
   }
 
   Future<void> _handleBluetoothData(MethodCall call) async {
+    final t = AppLocalizations.of(context)!;
+
     if (call.method == "onDataReceived") {
       final String data = call.arguments.toString().trim();
       _parseDhtResponse(data);
@@ -323,7 +319,7 @@ class _AutomationPageState extends State<AutomationPage>
         } else if (msg == "EVENT:COUNTDOWN_DONE") {
           if (_isRunning) _finishSession(auto: true);
         } else if (msg == "EVENT:SAFETY_STOP") {
-          Fluttertoast.showToast(msg: "Safety stop triggered by device");
+          Fluttertoast.showToast(msg: t.safetyStop);
           if (_isRunning) _finishSession();
         }
       }
@@ -375,22 +371,23 @@ class _AutomationPageState extends State<AutomationPage>
 
   // ---------------------- Target Tip Mapping ----------------------
   String _tipForTargetMc(double mc) {
+    final t = AppLocalizations.of(context)!;
     if (mc >= 9.0 && mc <= 9.5) {
-      return "9–9.5% • good for long-term seed preservation";
+      return t.tip_9_9_5;
     } else if (mc > 9.5 && mc <= 11.5) {
-      return "10–11.5% • good for short-term seed preservation";
+      return t.tip_10_11_5;
     } else if (mc > 11.5 && mc <= 12.5) {
-      return "12–12.5% • for storage beyond 3 months";
+      return t.tip_12_12_5;
     } else if (mc > 12.5 && mc <= 14.0) {
-      return "13–14% • for storage within 2–3 months (recommended for milling)";
+      return t.tip_13_14;
     }
-    return "Select a target moisture content (9–14%)";
+    return t.tip_selectTarget;
   }
 
   // ---------------------- Preheat / Init Flow ----------------------
   bool _meetsPreheatThresholds() {
     return _temperature >= _preheatTempMin && _temperature < _preheatTempMax;
-    }
+  }
 
   void _maybeMarkPreheatReady() {
     if (!_waitingForPreheat || _preheatReady) return;
@@ -401,8 +398,10 @@ class _AutomationPageState extends State<AutomationPage>
   }
 
   Future<void> _startPreheatDialog() async {
+    final t = AppLocalizations.of(context)!;
+
     if (_isRunning) {
-      Fluttertoast.showToast(msg: "A session is already running.");
+      Fluttertoast.showToast(msg: t.sessionAlreadyRunning);
       return;
     }
     if (!_inputsComplete) return;
@@ -423,16 +422,15 @@ class _AutomationPageState extends State<AutomationPage>
       barrierDismissible: false,
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
-        TextStyle t(double sz, {FontWeight? w, Color? c}) =>
+        TextStyle tt(double sz, {FontWeight? w, Color? c}) =>
             GoogleFonts.poppins(
-                fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+              fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
 
         return ValueListenableBuilder<bool>(
           valueListenable: readyNotifier,
           builder: (ctx, isReady, _) {
             return Dialog(
-              shape:
-                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
@@ -443,14 +441,12 @@ class _AutomationPageState extends State<AutomationPage>
                       const SizedBox(height: 8),
                       const CircularProgressIndicator(),
                       const SizedBox(height: 16),
-                      Text("Initializing...", style: t(18, w: FontWeight.w800)),
+                      Text(t.initializing, style: tt(18, w: FontWeight.w800)),
                       const SizedBox(height: 8),
                       Text(
-                        "Please wait for chamber to reach 45–70°C",
+                        t.waitForChamber,
                         textAlign: TextAlign.center,
-                        style: t(13,
-                            w: FontWeight.w600,
-                            c: cs.onSurface.withOpacity(0.8)),
+                        style: tt(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
                       ),
                       const SizedBox(height: 12),
 
@@ -463,7 +459,7 @@ class _AutomationPageState extends State<AutomationPage>
                                 minHeight: 88,
                                 pad: 10,
                                 icon: Icons.water_drop_outlined,
-                                label: "Humidity",
+                                label: t.humidity,
                                 value: "${_humidity.toStringAsFixed(1)}%",
                               ),
                             ),
@@ -473,7 +469,7 @@ class _AutomationPageState extends State<AutomationPage>
                                 minHeight: 88,
                                 pad: 10,
                                 icon: Icons.thermostat_outlined,
-                                label: "Temperature",
+                                label: t.temperature,
                                 value: "${_temperature.toStringAsFixed(1)}°C",
                               ),
                             ),
@@ -482,10 +478,8 @@ class _AutomationPageState extends State<AutomationPage>
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        "Target: temperature between 45°C and 70°C",
-                        style: t(12,
-                            w: FontWeight.w600,
-                            c: cs.onSurface.withOpacity(0.7)),
+                        t.targetTempRange,
+                        style: tt(12, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.7)),
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -498,28 +492,21 @@ class _AutomationPageState extends State<AutomationPage>
                                 _safeAllStop();
                                 Navigator.pop(ctx);
                               },
-                              child: Text("Cancel",
-                                  style: t(14,
-                                      w: FontWeight.w700,
-                                      c: Theme.of(ctx).colorScheme.primary)),
+                              child: Text(t.cancel, style: tt(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
                             ),
                           ),
                         ],
                       ),
                     ] else ...[
                       const SizedBox(height: 8),
-                      const Icon(Icons.check_circle,
-                          size: 44, color: Colors.green),
+                      const Icon(Icons.check_circle, size: 44, color: Colors.green),
                       const SizedBox(height: 16),
-                      Text("You may now put your grains",
-                          style: t(18, w: FontWeight.w800)),
+                      Text(t.putGrainsNow, style: tt(18, w: FontWeight.w800)),
                       const SizedBox(height: 8),
                       Text(
-                        "Chamber is ready.",
+                        t.chamberReady,
                         textAlign: TextAlign.center,
-                        style: t(13,
-                            w: FontWeight.w600,
-                            c: cs.onSurface.withOpacity(0.8)),
+                        style: tt(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -532,10 +519,7 @@ class _AutomationPageState extends State<AutomationPage>
                                 _safeAllStop();
                                 Navigator.pop(ctx);
                               },
-                              child: Text("Cancel",
-                                  style: t(14,
-                                      w: FontWeight.w700,
-                                      c: Theme.of(ctx).colorScheme.primary)),
+                              child: Text(t.cancel, style: tt(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -547,9 +531,7 @@ class _AutomationPageState extends State<AutomationPage>
                                 await _sendCommand("ARM:COUNTDOWN");
                                 if (!_isRunning) _beginDrying();
                               },
-                              child: Text("Start Drying",
-                                  style: t(14,
-                                      w: FontWeight.w700, c: Colors.white)),
+                              child: Text(t.startDrying, style: tt(14, w: FontWeight.w700, c: Colors.white)),
                             ),
                           ),
                         ],
@@ -572,20 +554,23 @@ class _AutomationPageState extends State<AutomationPage>
       _selectedBracket != null && _targetMc >= 9.0 && _targetMc <= 14.0;
 
   String get _prevSettingText {
+    final t = AppLocalizations.of(context)!;
     if (_prevBracket == null || _prevTargetMc == null) return "";
     final b = _prevBracket!;
     final m = _prevTargetMc!;
-    return "${b.title} • ${b.description} • ${m.toStringAsFixed(1)}% target";
+    return "${b.title(t)} • ${b.description(t)} • ${m.toStringAsFixed(1)}% ${t.targetLower}";
   }
 
   void _beginDrying() {
+    final t = AppLocalizations.of(context)!;
+
     if (_isRunning) {
-      Fluttertoast.showToast(msg: "A session is already running.");
+      Fluttertoast.showToast(msg: t.sessionAlreadyRunning);
       return;
     }
     final etaMin = _computeEtaMinutes();
     if (etaMin == null) {
-      Fluttertoast.showToast(msg: "Unable to compute estimated time.");
+      Fluttertoast.showToast(msg: t.unableToComputeEta);
       return;
     }
 
@@ -626,10 +611,12 @@ class _AutomationPageState extends State<AutomationPage>
     OperationHistory.instance.logReading(_currentOpId!, _humidity);
     _auxOn();
 
-    Fluttertoast.showToast(msg: "Drying started");
+    Fluttertoast.showToast(msg: t.dryingStarted);
   }
 
   Future<void> _finishSession({bool auto = false}) async {
+    final t = AppLocalizations.of(context)!;
+
     _ticker?.cancel();
     setState(() {
       _isPaused = false;
@@ -652,8 +639,73 @@ class _AutomationPageState extends State<AutomationPage>
     }
 
     if (auto) {
-      Fluttertoast.showToast(msg: "Target reached • Session ended");
+      Fluttertoast.showToast(msg: t.targetReachedEnded);
+      // ⬇️ Tap-to-dismiss popup after auto-complete
+      await _showDryingDonePopup();
     }
+  }
+
+  // ⬇️ Tap-to-dismiss "Drying is done" popup
+  Future<void> _showDryingDonePopup() async {
+    if (!mounted) return;
+    final cs = Theme.of(context).colorScheme;
+    final t = AppLocalizations.of(context)!;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black54,
+      builder: (ctx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(ctx).pop(),
+        child: Center(
+          child: Card(
+            elevation: 6,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.check_circle_rounded, size: 48, color: Colors.green),
+                  const SizedBox(height: 12),
+                  Text(
+                    t.targetReachedEnded, // localized success message
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    t.startNewSessionBody, // small helper text (reuses existing string)
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface.withOpacity(0.75),
+                    ),
+                  ),
+                  // Optional hint – remove if you don't have this key
+                  // const SizedBox(height: 10),
+                  // Text(
+                  //   "(${t.tapToDismiss})",
+                  //   textAlign: TextAlign.center,
+                  //   style: GoogleFonts.poppins(
+                  //     fontSize: 11,
+                  //     fontWeight: FontWeight.w600,
+                  //     color: cs.onSurface.withOpacity(0.6),
+                  //   ),
+                  // ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   void _pause() {
@@ -667,8 +719,10 @@ class _AutomationPageState extends State<AutomationPage>
   }
 
   Future<void> _showStartWithPreviousDialog() async {
+    final t = AppLocalizations.of(context)!;
+
     if (_prevBracket == null || _prevTargetMc == null) {
-      Fluttertoast.showToast(msg: "No previous settings found.");
+      Fluttertoast.showToast(msg: t.noPreviousSettings);
       return;
     }
     final cs = Theme.of(context).colorScheme;
@@ -678,7 +732,7 @@ class _AutomationPageState extends State<AutomationPage>
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Text(
-          "Start New Session",
+          t.startNewSession,
           style: GoogleFonts.poppins(
             fontSize: 18,
             fontWeight: FontWeight.w700,
@@ -690,7 +744,7 @@ class _AutomationPageState extends State<AutomationPage>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              "Start a new session using the previous settings?",
+              t.startNewSessionBody,
               style: GoogleFonts.poppins(
                   fontSize: 14, color: cs.onSurface.withOpacity(0.85)),
             ),
@@ -709,7 +763,7 @@ class _AutomationPageState extends State<AutomationPage>
           TextButton(
             onPressed: () => Navigator.pop(ctx),
             child: Text(
-              "Cancel",
+              t.cancel,
               style: GoogleFonts.poppins(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -732,7 +786,7 @@ class _AutomationPageState extends State<AutomationPage>
               await _startPreheatDialog();
             },
             child: Text(
-              "Confirm",
+              t.confirm,
               style: GoogleFonts.poppins(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
@@ -751,6 +805,10 @@ class _AutomationPageState extends State<AutomationPage>
     super.build(context);
     final themeScope = ThemeScope.of(context);
     final cs = Theme.of(context).colorScheme;
+    final t = AppLocalizations.of(context)!;
+
+    // Lock inputs when session running or preheat in progress
+    final bool inputsLocked = _isRunning || _waitingForPreheat;
 
     return Scaffold(
       appBar: PageHeader(
@@ -775,7 +833,7 @@ class _AutomationPageState extends State<AutomationPage>
             final double dotSize = (18 * scale).clamp(14, 24).toDouble();
             final double bigText = (48 * scale).clamp(36, 64).toDouble();
 
-            TextStyle t(double sz, {FontWeight? w, Color? c}) =>
+            TextStyle tx(double sz, {FontWeight? w, Color? c}) =>
                 GoogleFonts.poppins(
                     fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
 
@@ -838,7 +896,7 @@ class _AutomationPageState extends State<AutomationPage>
                       minHeight: tileMinH,
                       pad: cardPad,
                       icon: Icons.water_drop_outlined,
-                      label: "Humidity",
+                      label: t.humidity,
                       value: "${_humidity.toStringAsFixed(1)}%",
                     ),
                   ),
@@ -848,7 +906,7 @@ class _AutomationPageState extends State<AutomationPage>
                       minHeight: tileMinH,
                       pad: cardPad,
                       icon: Icons.thermostat_outlined,
-                      label: "Temperature",
+                      label: t.temperature,
                       value: "${_temperature.toStringAsFixed(1)}°C",
                     ),
                   ),
@@ -862,15 +920,12 @@ class _AutomationPageState extends State<AutomationPage>
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Target Moisture Content",
-                      style: t(16, w: FontWeight.w700, c: context.brand)),
+                  Text(t.targetMoistureContent,
+                      style: tx(16, w: FontWeight.w700, c: context.brand)),
                   SizedBox(height: (10 * scale).clamp(6, 12).toDouble()),
                   Row(
                     children: [
-                      Text("9%",
-                          style: t(12,
-                              w: FontWeight.w700,
-                              c: cs.onSurface.withOpacity(0.7))),
+                      Text("9%", style: tx(12, w: FontWeight.w700, c: cs.onSurface.withOpacity(0.7))),
                       Expanded(
                         child: Slider(
                           value: _targetMc,
@@ -878,24 +933,22 @@ class _AutomationPageState extends State<AutomationPage>
                           max: 14.0,
                           divisions: 10,
                           label: "${_targetMc.toStringAsFixed(1)}%",
-                          onChanged: (v) {
-                            setState(() =>
-                                _targetMc = double.parse(v.toStringAsFixed(1)));
-                          },
+                          // Disabled while running or preheating
+                          onChanged: inputsLocked
+                              ? null
+                              : (v) {
+                                  setState(() =>
+                                      _targetMc = double.parse(v.toStringAsFixed(1)));
+                                },
                         ),
                       ),
-                      Text("14%",
-                          style: t(12,
-                              w: FontWeight.w700,
-                              c: cs.onSurface.withOpacity(0.7))),
+                      Text("14%", style: tx(12, w: FontWeight.w700, c: cs.onSurface.withOpacity(0.7))),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
                     tip,
-                    style: t(13,
-                        w: FontWeight.w600,
-                        c: cs.onSurface.withOpacity(0.85)),
+                    style: tx(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.85)),
                   ),
                 ],
               );
@@ -906,37 +959,37 @@ class _AutomationPageState extends State<AutomationPage>
                 final sel = _selectedBracket == b;
                 final bg = sel ? cs.primaryContainer : cs.surfaceVariant;
                 final fg = sel ? cs.onPrimaryContainer : cs.onSurface;
+
                 return Expanded(
                   child: InkWell(
-                    onTap: () => setState(() => _selectedBracket = b),
+                    // Disable taps while running or preheating
+                    onTap: inputsLocked ? null : () => setState(() => _selectedBracket = b),
                     borderRadius: BorderRadius.circular(16),
-                    child: Container(
-                      padding:
-                          EdgeInsets.all((12 * scale).clamp(10, 18).toDouble()),
-                      decoration: BoxDecoration(
-                        color: bg,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                            color: cs.outline.withOpacity(sel ? 0.0 : 1.0)),
-                      ),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            b.title,
-                            textAlign: TextAlign.center,
-                            style: t((18 * scale).clamp(16, 24).toDouble(),
-                                w: FontWeight.w800, c: fg),
-                          ),
-                          const SizedBox(height: 6),
-                          Text(
-                            b.description,
-                            textAlign: TextAlign.center,
-                            style: t((12 * scale).clamp(11, 15).toDouble(),
-                                w: FontWeight.w600,
-                                c: fg.withOpacity(0.9)),
-                          ),
-                        ],
+                    child: Opacity(
+                      opacity: inputsLocked ? 0.6 : 1.0,
+                      child: Container(
+                        padding: EdgeInsets.all((12 * scale).clamp(10, 18).toDouble()),
+                        decoration: BoxDecoration(
+                          color: bg,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: cs.outline.withOpacity(sel ? 0.0 : 1.0)),
+                        ),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              b.title(t),
+                              textAlign: TextAlign.center,
+                              style: tx((18 * scale).clamp(16, 24).toDouble(), w: FontWeight.w800, c: fg),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              b.description(t),
+                              textAlign: TextAlign.center,
+                              style: tx((12 * scale).clamp(11, 15).toDouble(), w: FontWeight.w600, c: fg.withOpacity(0.9)),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -946,8 +999,8 @@ class _AutomationPageState extends State<AutomationPage>
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text("Initial Moisture Content",
-                      style: t(16, w: FontWeight.w700, c: context.brand)),
+                  Text(t.initialMoistureContent,
+                      style: tx(16, w: FontWeight.w700, c: context.brand)),
                   SizedBox(height: (10 * scale).clamp(6, 12).toDouble()),
                   Row(
                     children: [
@@ -966,17 +1019,17 @@ class _AutomationPageState extends State<AutomationPage>
               final eta = _computeEtaMinutes();
               String txt;
               if (!_inputsComplete) {
-                txt = "Complete inputs to estimate time";
+                txt = t.completeInputsToEstimate;
               } else if (eta == null) {
-                txt = "Estimating…";
+                txt = t.estimating;
               } else if (eta <= 0) {
-                txt = "At/Below target";
+                txt = t.atOrBelowTarget;
               } else if (eta < 60) {
-                txt = "~${eta.ceil()} min";
+                txt = "~${eta.ceil()} ${t.minutesShort}";
               } else {
                 final h = (eta / 60).floor();
                 final m = (eta % 60).ceil();
-                txt = "~${h}h ${m}m";
+                txt = "~${h}${t.hoursShort} ${m}${t.minutesShort}";
               }
 
               return Container(
@@ -989,8 +1042,8 @@ class _AutomationPageState extends State<AutomationPage>
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  "Estimated time: $txt",
-                  style: t((12 * scale).clamp(11, 15).toDouble(),
+                  "${t.estimatedTime}: $txt",
+                  style: tx((12 * scale).clamp(11, 15).toDouble(),
                       w: FontWeight.w700, c: cs.onSecondaryContainer),
                 ),
               );
@@ -1007,7 +1060,7 @@ class _AutomationPageState extends State<AutomationPage>
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      // ───────── Optional inline banner to restart with previous ─────────
+                      // ───────── Restart-with-previous banner ─────────
                       if (_prevBracket != null &&
                           _prevTargetMc != null &&
                           !_isRunning &&
@@ -1019,22 +1072,15 @@ class _AutomationPageState extends State<AutomationPage>
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text("Start New Session",
-                                          style: t(
-                                              (16 * scale)
-                                                  .clamp(14, 20)
-                                                  .toDouble(),
-                                              w: FontWeight.w700,
-                                              c: context.brand)),
+                                      Text(t.startNewSession,
+                                          style: tx((16 * scale).clamp(14, 20).toDouble(),
+                                              w: FontWeight.w700, c: context.brand)),
                                       const SizedBox(height: 6),
                                       Text(
-                                        "Use previous settings:\n$_prevSettingText",
-                                        style: t(12,
-                                            w: FontWeight.w600,
-                                            c: cs.onSurface.withOpacity(0.8)),
+                                        "${t.usePreviousSettings}:\n$_prevSettingText",
+                                        style: tx(12, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
                                       ),
                                     ],
                                   ),
@@ -1044,9 +1090,8 @@ class _AutomationPageState extends State<AutomationPage>
                                   style: startStyle,
                                   onPressed: _showStartWithPreviousDialog,
                                   child: Text(
-                                    "Start same",
-                                    style: t(14,
-                                        w: FontWeight.w700, c: cs.onPrimary),
+                                    t.startSame,
+                                    style: tx(14, w: FontWeight.w700, c: cs.onPrimary),
                                   ),
                                 ),
                               ],
@@ -1063,23 +1108,34 @@ class _AutomationPageState extends State<AutomationPage>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text("Session Plan",
-                                  style: t(
+                              Text(t.sessionPlan,
+                                  style: tx(
                                       (16 * scale).clamp(14, 20).toDouble(),
                                       w: FontWeight.w700,
                                       c: context.brand)),
                               const SizedBox(height: 10),
-                              targetSlider(),
+
+                              // Slider disabled while running/preheating
+                              AnimatedOpacity(
+                                duration: const Duration(milliseconds: 200),
+                                opacity: inputsLocked ? 0.6 : 1.0,
+                                child: targetSlider(),
+                              ),
                               const SizedBox(height: 14),
-                              initialSelector(),
+
+                              // Bracket buttons disabled while running/preheating
+                              AnimatedOpacity(
+                                duration: const Duration(milliseconds: 200),
+                                opacity: inputsLocked ? 0.6 : 1.0,
+                                child: initialSelector(),
+                              ),
                               const SizedBox(height: 14),
+
                               etaBadge(),
                               const SizedBox(height: 14),
                               ElevatedButton(
                                 style: startStyle,
-                                onPressed: (_inputsComplete &&
-                                        !_isRunning &&
-                                        !_waitingForPreheat)
+                                onPressed: (_inputsComplete && !_isRunning && !_waitingForPreheat)
                                     ? () async {
                                         final ok = await _ensureBluetoothReadyOrExplain();
                                         if (!ok) return;
@@ -1088,10 +1144,7 @@ class _AutomationPageState extends State<AutomationPage>
                                         await _startPreheatDialog();
                                       }
                                     : null,
-                                child: Text("Start",
-                                    style: t(14,
-                                        w: FontWeight.w700,
-                                        c: cs.onPrimary)),
+                                child: Text(t.start, style: tx(14, w: FontWeight.w700, c: cs.onPrimary)),
                               ),
                             ],
                           ),
@@ -1108,23 +1161,17 @@ class _AutomationPageState extends State<AutomationPage>
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Row(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
-                                    "Session Timer",
-                                    style: t(
-                                        (16 * scale).clamp(14, 20).toDouble(),
-                                        w: FontWeight.w700,
-                                        c: context.brand),
+                                    t.sessionTimer,
+                                    style: tx((16 * scale).clamp(14, 20).toDouble(),
+                                        w: FontWeight.w700, c: context.brand),
                                   ),
                                   Container(
                                     padding: EdgeInsets.symmetric(
-                                      horizontal: (10 * scale)
-                                          .clamp(8, 14)
-                                          .toDouble(),
-                                      vertical:
-                                          (6 * scale).clamp(4, 10).toDouble(),
+                                      horizontal: (10 * scale).clamp(8, 14).toDouble(),
+                                      vertical: (6 * scale).clamp(4, 10).toDouble(),
                                     ),
                                     decoration: BoxDecoration(
                                       color: _isRunning
@@ -1136,21 +1183,13 @@ class _AutomationPageState extends State<AutomationPage>
                                     ),
                                     child: Text(
                                       _isRunning
-                                          ? (_isPaused ? "Paused" : "Running")
-                                          : (_waitingForPreheat
-                                              ? "Initializing"
-                                              : "Idle"),
-                                      style: t(
-                                          (12 * scale)
-                                              .clamp(11, 15)
-                                              .toDouble(),
+                                          ? (_isPaused ? t.paused : t.running)
+                                          : (_waitingForPreheat ? t.initializing : t.idle),
+                                      style: tx((12 * scale).clamp(11, 15).toDouble(),
                                           w: FontWeight.w700,
                                           c: _isRunning
-                                              ? (_isPaused
-                                                  ? Colors.amber.shade900
-                                                  : cs.onSecondaryContainer)
-                                              : cs.onSurface
-                                                  .withOpacity(0.8)),
+                                              ? (_isPaused ? Colors.amber.shade900 : cs.onSecondaryContainer)
+                                              : cs.onSurface.withOpacity(0.8)),
                                     ),
                                   ),
                                 ],
@@ -1187,14 +1226,9 @@ class _AutomationPageState extends State<AutomationPage>
                                               shape: BoxShape.circle,
                                               boxShadow: [
                                                 BoxShadow(
-                                                  color: dotColor
-                                                      .withOpacity(0.45),
-                                                  blurRadius:
-                                                      (10 * scale).clamp(6, 14)
-                                                          .toDouble(),
-                                                  spreadRadius:
-                                                      (2 * scale).clamp(1, 3)
-                                                          .toDouble(),
+                                                  color: dotColor.withOpacity(0.45),
+                                                  blurRadius: (10 * scale).clamp(6, 14).toDouble(),
+                                                  spreadRadius: (2 * scale).clamp(1, 3).toDouble(),
                                                 ),
                                               ],
                                             ),
@@ -1204,24 +1238,13 @@ class _AutomationPageState extends State<AutomationPage>
                                       Column(
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
+                                          Text(_fmtDuration(_remaining),
+                                              style: tx(bigText, w: FontWeight.w800)),
+                                          SizedBox(height: (6 * scale).clamp(4, 10).toDouble()),
                                           Text(
-                                            _fmtDuration(_remaining),
-                                            style:
-                                                t(bigText, w: FontWeight.w800),
-                                          ),
-                                          SizedBox(
-                                              height: (6 * scale)
-                                                  .clamp(4, 10)
-                                                  .toDouble()),
-                                          Text(
-                                            "to ${_targetMc.toStringAsFixed(1)}% MC",
-                                            style: t(
-                                                (14 * scale)
-                                                    .clamp(12, 18)
-                                                    .toDouble(),
-                                                w: FontWeight.w600,
-                                                c: cs.onSurface
-                                                    .withOpacity(0.8)),
+                                            "${t.toTarget(_targetMc.toStringAsFixed(1))}",
+                                            style: tx((14 * scale).clamp(12, 18).toDouble(),
+                                                w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
                                           ),
                                         ],
                                       ),
@@ -1230,9 +1253,7 @@ class _AutomationPageState extends State<AutomationPage>
                                 );
                               }),
 
-                              SizedBox(
-                                  height:
-                                      (16 * scale).clamp(12, 22).toDouble()),
+                              SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
                               Row(
                                 children: [
                                   Expanded(
@@ -1247,103 +1268,69 @@ class _AutomationPageState extends State<AutomationPage>
                                               }
                                             }
                                           : null,
-                                      child: Text(
-                                        _isPaused ? "Play" : "Pause",
-                                        style: t(14,
-                                            w: FontWeight.w700,
-                                            c: Colors.white),
-                                      ),
+                                      child: Text(_isPaused ? t.play : t.pause,
+                                          style: tx(14, w: FontWeight.w700, c: Colors.white)),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: ElevatedButton(
                                       style: stopStyle,
-                                      onPressed: _isRunning ||
-                                              _waitingForPreheat ||
-                                              _isPaused
+                                      onPressed: _isRunning || _waitingForPreheat || _isPaused
                                           ? () async {
-                                              final cs =
-                                                  Theme.of(context).colorScheme;
+                                              final cs = Theme.of(context).colorScheme;
                                               await showDialog(
                                                 context: context,
                                                 builder: (ctx) => AlertDialog(
                                                   shape: RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            16),
+                                                    borderRadius: BorderRadius.circular(16),
                                                   ),
-                                                  title: Text("Stop Session",
-                                                      style:
-                                                          GoogleFonts.poppins(
-                                                              fontSize: 18,
-                                                              fontWeight:
-                                                                  FontWeight
-                                                                      .w700,
-                                                              color: cs
-                                                                  .onSurface)),
+                                                  title: Text(t.stopSession,
+                                                      style: GoogleFonts.poppins(
+                                                          fontSize: 18,
+                                                          fontWeight: FontWeight.w700,
+                                                          color: cs.onSurface)),
                                                   content: Text(
-                                                      "You are about to stop the current session.",
-                                                      style:
-                                                          GoogleFonts.poppins(
-                                                              fontSize: 14,
-                                                              color: cs
-                                                                  .onSurface
-                                                                  .withOpacity(
-                                                                      0.85))),
+                                                      t.stopSessionBody,
+                                                      style: GoogleFonts.poppins(
+                                                          fontSize: 14,
+                                                          color: cs.onSurface.withOpacity(0.85))),
                                                   actions: [
                                                     TextButton(
-                                                      onPressed: () =>
-                                                          Navigator.pop(ctx),
-                                                      child: Text("Cancel",
-                                                          style: GoogleFonts
-                                                              .poppins(
-                                                                  fontSize: 14,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w600,
-                                                                  color: context
-                                                                      .brand)),
+                                                      onPressed: () => Navigator.pop(ctx),
+                                                      child: Text(t.cancel,
+                                                          style: GoogleFonts.poppins(
+                                                              fontSize: 14,
+                                                              fontWeight: FontWeight.w600,
+                                                              color: context.brand)),
                                                     ),
                                                     ElevatedButton(
                                                       onPressed: () {
                                                         Navigator.pop(ctx);
                                                         if (_waitingForPreheat) {
-                                                          _waitingForPreheat =
-                                                              false;
+                                                          _waitingForPreheat = false;
                                                           _preheatReady = false;
                                                           _safeAllStop();
                                                         }
                                                         _finishSession();
                                                       },
-                                                      child: Text("Confirm",
-                                                          style: GoogleFonts
-                                                              .poppins(
-                                                                  fontSize: 14,
-                                                                  fontWeight:
-                                                                      FontWeight
-                                                                          .w700,
-                                                                  color: cs
-                                                                      .onPrimary)),
+                                                      child: Text(t.confirm,
+                                                          style: GoogleFonts.poppins(
+                                                              fontSize: 14,
+                                                              fontWeight: FontWeight.w700,
+                                                              color: cs.onPrimary)),
                                                     ),
                                                   ],
                                                 ),
                                               );
                                             }
                                           : null,
-                                      child: Text(
-                                        "Stop",
-                                        style: t(14,
-                                            w: FontWeight.w700,
-                                            c: Colors.white),
-                                      ),
+                                      child: Text(t.stop, style: tx(14, w: FontWeight.w700, c: Colors.white)),
                                     ),
                                   ),
                                 ],
                               ),
-                              SizedBox(
-                                  height:
-                                      (16 * scale).clamp(12, 22).toDouble()),
+                              SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
                               metricRow(),
                             ],
                           ),

@@ -9,6 +9,9 @@ import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart';
 import 'package:nice_rice/pages/automation/automation.dart';
 
+// ⬇️ Use the generated localizations
+import 'package:nice_rice/l10n/app_localizations.dart';
+
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -23,6 +26,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   // Timers
   Timer? _sensorTimer;
   Timer? _clockTimer;
+
+  // ✅ Connection watchdog (from previous step)
+  Timer? _connWatchTimer;
+  DateTime? _lastBleRxAt;
+  static const Duration _disconnectGrace = Duration(seconds: 10);
+  static const Duration _connWatchTick = Duration(seconds: 2);
 
   // Live sensor values (DHT)
   double _tempC = 0;
@@ -62,14 +71,24 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     // Register Bluetooth data handler
     _bleChannel.setMethodCallHandler(_handleBluetoothData);
 
+    // Start watchdog
+    _connWatchTimer = Timer.periodic(_connWatchTick, (_) {
+      if (!_isConnected) return;
+      final last = _lastBleRxAt;
+      if (last == null) return;
+      final silentFor = DateTime.now().difference(last);
+      if (silentFor > _disconnectGrace) {
+        _handleConnectionLost();
+      }
+    });
+
     // Poll environment sensor every 3s
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
-      _sendCommand("GET_DHT");      // expects: DHT:H=xx.x,T=yy.y
-      _sendCommand("GET_STATUS");   // reserve for storage status later
-      _sendCommand("GET_BAT");      // reserve for battery percent later
-      // TODO: once EMC math is ready, request/compute and set _estMc
-      // setState(() => _estMc = <computed value>);
+      _sendCommand("GET_DHT");
+      _sendCommand("GET_STATUS");
+      _sendCommand("GET_BAT");
+      // TODO: compute _estMc when math is ready
     });
 
     // Tick clock (for the header date/time)
@@ -82,6 +101,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   void dispose() {
     _sensorTimer?.cancel();
     _clockTimer?.cancel();
+    _connWatchTimer?.cancel();
     super.dispose();
   }
 
@@ -130,32 +150,36 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   Future<void> _handleBluetoothData(MethodCall call) async {
+    final t = AppLocalizations.of(context)!;
     if (call.method == "onDataReceived") {
       final String data = call.arguments.toString().trim();
       _parseBleResponse(data);
     } else if (call.method == "onDisconnected") {
-      // Optional: if native layer notifies disconnection
-      if (!mounted) return;
-      setState(() {
-        _isConnected = false;
-        _connectedName = null;
-        _connectedAddr = null;
-      });
-      // 👉 publish to Automation page
-      AutomationPage.btConnected.value = false;
-      AutomationPage.btDeviceName.value = null;
-
-      _toast('Device disconnected');
+      _handleConnectionLost();
+      _toast(t.deviceDisconnected);
     }
   }
 
+  void _handleConnectionLost() {
+    if (!mounted) return;
+    setState(() {
+      _isConnected = false;
+      _connectedName = null;
+      _connectedAddr = null;
+    });
+    AutomationPage.btConnected.value = false;
+    AutomationPage.btDeviceName.value = null;
+    _toast("Bluetooth connection lost");
+  }
+
   void _parseBleResponse(String rawData) {
+    _lastBleRxAt = DateTime.now();
+
     final lines = rawData.split(RegExp(r'[\r\n]+'));
     for (final line in lines) {
       final data = line.trim();
       if (data.isEmpty) continue;
 
-      // DHT parser: "DHT:H=38.2,T=27.5"
       if (data.startsWith("DHT:")) {
         final payload = data.replaceFirst("DHT:", "");
         final parts = payload.split(',');
@@ -178,16 +202,14 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         continue;
       }
 
-      // Storage status placeholder (shape TBD). Example: "STATUS:Safe"
       if (data.startsWith("STATUS:")) {
         final txt = data.replaceFirst("STATUS:", "").trim();
         setState(() {
-          _storageStatus = txt; // may still be "", which is fine for now
+          _storageStatus = txt;
         });
         continue;
       }
 
-      // Battery parser (shape TBD). Example: "BAT:76"
       if (data.startsWith("BAT:")) {
         final v = int.tryParse(data.replaceFirst("BAT:", "").trim());
         if (v != null) {
@@ -200,8 +222,10 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   // ─── Connect + device picker (Android only) ────────────────────────────────
   Future<void> _onConnectPressed() async {
+    final t = AppLocalizations.of(context)!;
+
     if (!Platform.isAndroid) {
-      _toast('Bluetooth flow is Android-only in this build.');
+      _toast(t.bluetoothAndroidOnly);
       return;
     }
     if (_isConnecting) return;
@@ -210,7 +234,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     try {
       final ok = await _bleChannel.invokeMethod<bool>('ensureBluetoothOn') ?? false;
       if (!ok) {
-        _toast('Bluetooth is still OFF.');
+        _toast(t.bluetoothStillOff);
         return;
       }
 
@@ -219,14 +243,14 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
       final devices = _mergeDevices(bonded, discovered);
       if (devices.isEmpty) {
-        _toast('No devices found nearby.');
+        _toast(t.noDevicesFound);
         return;
       }
       _showDevicePicker(devices);
     } on PlatformException catch (e) {
-      _toast('Bluetooth error: ${e.message ?? e.code}');
+      _toast(t.bluetoothError(e.message ?? e.code));
     } catch (e) {
-      _toast('Unexpected error: $e');
+      _toast(t.unexpectedError(e.toString()));
     } finally {
       if (mounted) setState(() => _isConnecting = false);
     }
@@ -257,6 +281,8 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   void _showDevicePicker(List<Map<String, String>> devices) {
+    final t = AppLocalizations.of(context)!;
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: false,
@@ -267,7 +293,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: 8),
-              Text("Select a device", style: _textStyle(context, size: 18, weight: FontWeight.w700)),
+              Text(t.selectDevice, style: _textStyle(context, size: 18, weight: FontWeight.w700)),
               const SizedBox(height: 4),
               Flexible(
                 child: ListView.separated(
@@ -276,7 +302,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final d = devices[i];
-                    final name = (d["name"] ?? "").isEmpty ? "(Unnamed)" : d["name"]!;
+                    final name = (d["name"] ?? "").isEmpty ? t.unnamedDevice : d["name"]!;
                     final addr = d["address"] ?? "";
                     return ListTile(
                       leading: const Icon(Icons.bluetooth),
@@ -298,14 +324,14 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                               _isConnected = true;
                               _connectedName = name;
                               _connectedAddr = addr;
+                              _lastBleRxAt = DateTime.now();
                             });
-                            // 👉 publish to Automation page
                             AutomationPage.btConnected.value = true;
                             AutomationPage.btDeviceName.value = name;
                           }
-                          _toast(ok ? 'Connected to $name ($addr)' : 'Failed to connect to $name');
+                          _toast(ok ? t.connectedTo(name, addr) : t.failedToConnect(name));
                         } on PlatformException catch (e) {
-                          _toast('Connect error: ${e.message ?? e.code}');
+                          _toast(t.connectError(e.message ?? e.code));
                         } finally {
                           if (mounted) setState(() => _isConnecting = false);
                         }
@@ -322,11 +348,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   }
 
   Future<void> _onDisconnectPressed() async {
+    final t = AppLocalizations.of(context)!;
     final confirm = await _showDisconnectConfirmDialog();
     if (confirm != true) return;
 
     try {
-      await _bleChannel.invokeMethod('disconnect'); // expects native side to handle gracefully
+      await _bleChannel.invokeMethod('disconnect');
     } catch (e) {
       debugPrint("❌ Disconnect error: $e");
     } finally {
@@ -336,15 +363,14 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         _connectedName = null;
         _connectedAddr = null;
       });
-      // 👉 publish to Automation page
       AutomationPage.btConnected.value = false;
       AutomationPage.btDeviceName.value = null;
-
-      _toast('Disconnected');
+      _toast(t.disconnected);
     }
   }
 
   Future<bool?> _showDisconnectConfirmDialog() {
+    final t = AppLocalizations.of(context)!;
     return showDialog<bool>(
       context: context,
       barrierDismissible: true,
@@ -358,37 +384,43 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  "Disconnect",
+                  t.disconnectTitle,
                   style: _textStyle(ctx, size: 20, weight: FontWeight.w800, color: cs.onSurface),
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  "You are about to disconnect from the current device.",
+                  t.disconnectBody,
                   textAlign: TextAlign.center,
                   style: _textStyle(ctx, size: 14, weight: FontWeight.w400, color: cs.onSurface.withOpacity(0.9)),
                 ),
                 const SizedBox(height: 18),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        foregroundColor: cs.onSurface,
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+
+                // ✅ Buttons: right-aligned, side-by-side, consistent spacing
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: cs.onSurface,
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, false),
+                        child: Text(t.cancel),
                       ),
-                      onPressed: () => Navigator.pop(ctx, false),
-                      child: const Text("Cancel"),
-                    ),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                      const SizedBox(width: 12),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                        ),
+                        onPressed: () => Navigator.pop(ctx, true),
+                        child: Text(t.confirm),
                       ),
-                      onPressed: () => Navigator.pop(ctx, true),
-                      child: const Text("Confirm"),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -408,6 +440,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     super.build(context);
     final theme = ThemeScope.of(context);
     final now = DateTime.now();
+    final t = AppLocalizations.of(context)!;
 
     final Color paleRed = const Color(0xFFF28B82);
     final Color paleRedBorder = const Color(0xFFF28B82);
@@ -460,132 +493,132 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                   Expanded(
                                     child: Padding(
                                       padding: const EdgeInsets.only(left: 40),
-                                        child: Align(
-                                          alignment: Alignment.centerRight,
-                                          child: ConstrainedBox(
-                                            constraints: BoxConstraints(
-                                              maxWidth: (box.maxWidth * 0.6).clamp(220, 480),
-                                            ),
-                                            child: Column(
-                                              crossAxisAlignment: CrossAxisAlignment.start,
-                                              children: [
-                                                Text(
-                                                  _formatDate(now),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: _textStyle(
-                                                    context,
-                                                    size: (18 * _scaleForWidth(box.maxWidth)).clamp(14, 22).toDouble(),
-                                                    weight: FontWeight.w700,
-                                                    color: context.brand,
-                                                  ),
+                                      child: Align(
+                                        alignment: Alignment.centerRight,
+                                        child: ConstrainedBox(
+                                          constraints: BoxConstraints(
+                                            maxWidth: (box.maxWidth * 0.6).clamp(220, 480),
+                                          ),
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                _formatDate(now),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: _textStyle(
+                                                  context,
+                                                  size: (18 * _scaleForWidth(box.maxWidth)).clamp(14, 22).toDouble(),
+                                                  weight: FontWeight.w700,
+                                                  color: context.brand,
                                                 ),
-                                                const SizedBox(height: 2),
-                                                Text(
-                                                  _formatTime(now),
-                                                  maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: _textStyle(
-                                                    context,
-                                                    size: (14 * _scaleForWidth(box.maxWidth)).clamp(12, 18).toDouble(),
-                                                    weight: FontWeight.w400,
-                                                  ),
+                                              ),
+                                              const SizedBox(height: 2),
+                                              Text(
+                                                _formatTime(now),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                                style: _textStyle(
+                                                  context,
+                                                  size: (14 * _scaleForWidth(box.maxWidth)).clamp(12, 18).toDouble(),
+                                                  weight: FontWeight.w400,
                                                 ),
-                                                const SizedBox(height: 10),
+                                              ),
+                                              const SizedBox(height: 10),
 
-                                                // CONNECT / DISCONNECT BUTTON
-                                                Align(
-                                                  alignment: Alignment.centerLeft,
-                                                  child: ConstrainedBox(
-                                                    constraints: const BoxConstraints(minWidth: 140),
-                                                    child: _isConnected
-                                                        ? OutlinedButton(
-                                                            style: OutlinedButton.styleFrom(
-                                                              side: BorderSide(color: paleRedBorder, width: 1.6),
-                                                              backgroundColor: Colors.white,
-                                                              foregroundColor: paleRedText,
-                                                              shape: RoundedRectangleBorder(
-                                                                borderRadius: BorderRadius.circular(100),
-                                                              ),
-                                                              padding: EdgeInsets.symmetric(
-                                                                horizontal: 20,
-                                                                vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
-                                                              ),
+                                              // CONNECT / DISCONNECT BUTTON
+                                              Align(
+                                                alignment: Alignment.centerLeft,
+                                                child: ConstrainedBox(
+                                                  constraints: const BoxConstraints(minWidth: 140),
+                                                  child: _isConnected
+                                                      ? OutlinedButton(
+                                                          style: OutlinedButton.styleFrom(
+                                                            side: BorderSide(color: paleRedBorder, width: 1.6),
+                                                            backgroundColor: Colors.white,
+                                                            foregroundColor: paleRedText,
+                                                            shape: RoundedRectangleBorder(
+                                                              borderRadius: BorderRadius.circular(100),
                                                             ),
-                                                            onPressed: _onDisconnectPressed,
-                                                            child: FittedBox(
-                                                              fit: BoxFit.scaleDown,
-                                                              child: Row(
-                                                                mainAxisSize: MainAxisSize.min,
-                                                                children: [
-                                                                  const Icon(Icons.link_off, size: 18),
-                                                                  const SizedBox(width: 8),
-                                                                  Text(
-                                                                    "Disconnect",
-                                                                    style: _textStyle(
-                                                                      context,
-                                                                      size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
-                                                                      weight: FontWeight.w700,
-                                                                      color: paleRedText,
-                                                                    ),
-                                                                  ),
-                                                                ],
-                                                              ),
-                                                            ),
-                                                          )
-                                                        : ElevatedButton(
-                                                            style: ElevatedButton.styleFrom(
-                                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
-                                                              padding: EdgeInsets.symmetric(
-                                                                horizontal: 20,
-                                                                vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
-                                                              ),
-                                                            ),
-                                                            onPressed: _isConnecting ? null : _onConnectPressed,
-                                                            child: FittedBox(
-                                                              fit: BoxFit.scaleDown,
-                                                              child: Row(
-                                                                mainAxisSize: MainAxisSize.min,
-                                                                children: [
-                                                                  if (_isConnecting)
-                                                                    Padding(
-                                                                      padding: const EdgeInsets.only(right: 8.0),
-                                                                      child: SizedBox(
-                                                                        width: 16, height: 16,
-                                                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                                                      ),
-                                                                    ),
-                                                                  const Icon(Icons.bluetooth, size: 18, color: Colors.white),
-                                                                  const SizedBox(width: 8),
-                                                                  Text(
-                                                                    "Connect",
-                                                                    style: _textStyle(
-                                                                      context,
-                                                                      size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
-                                                                      weight: FontWeight.w700,
-                                                                      color: Colors.white,
-                                                                    ),
-                                                                  ),
-                                                                ],
-                                                              ),
+                                                            padding: EdgeInsets.symmetric(
+                                                              horizontal: 20,
+                                                              vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
                                                             ),
                                                           ),
-                                                  ),
+                                                          onPressed: _onDisconnectPressed,
+                                                          child: FittedBox(
+                                                            fit: BoxFit.scaleDown,
+                                                            child: Row(
+                                                              mainAxisSize: MainAxisSize.min,
+                                                              children: [
+                                                                const Icon(Icons.link_off, size: 18),
+                                                                const SizedBox(width: 8),
+                                                                Text(
+                                                                  t.disconnect,
+                                                                  style: _textStyle(
+                                                                    context,
+                                                                    size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
+                                                                    weight: FontWeight.w700,
+                                                                    color: paleRedText,
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        )
+                                                      : ElevatedButton(
+                                                          style: ElevatedButton.styleFrom(
+                                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                                                            padding: EdgeInsets.symmetric(
+                                                              horizontal: 20,
+                                                              vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
+                                                            ),
+                                                          ),
+                                                          onPressed: _isConnecting ? null : _onConnectPressed,
+                                                          child: FittedBox(
+                                                            fit: BoxFit.scaleDown,
+                                                            child: Row(
+                                                              mainAxisSize: MainAxisSize.min,
+                                                              children: [
+                                                                if (_isConnecting)
+                                                                  Padding(
+                                                                    padding: const EdgeInsets.only(right: 8.0),
+                                                                    child: SizedBox(
+                                                                      width: 16, height: 16,
+                                                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                                                    ),
+                                                                  ),
+                                                                const Icon(Icons.bluetooth, size: 18, color: Colors.white),
+                                                                const SizedBox(width: 8),
+                                                                Text(
+                                                                  t.connect,
+                                                                  style: _textStyle(
+                                                                    context,
+                                                                    size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
+                                                                    weight: FontWeight.w700,
+                                                                    color: Colors.white,
+                                                                  ),
+                                                                ),
+                                                              ],
+                                                            ),
+                                                          ),
+                                                        ),
                                                 ),
+                                              ),
 
-                                                if (_isConnected && (_connectedName?.isNotEmpty ?? false)) ...[
-                                                  const SizedBox(height: 6),
-                                                  Text(
-                                                    "Connected: $_connectedName",
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                    style: _textStyle(context, size: 12, color: Colors.grey[700]),
-                                                  ),
-                                                ],
+                                              if (_isConnected && (_connectedName?.isNotEmpty ?? false)) ...[
+                                                const SizedBox(height: 6),
+                                                Text(
+                                                  t.connectedLabel(_connectedName ?? ''),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                  style: _textStyle(context, size: 12, color: Colors.grey[700]),
+                                                ),
                                               ],
-                                            ),
+                                            ],
                                           ),
                                         ),
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -597,72 +630,84 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
                       const SizedBox(height: 14),
 
-                      // ── Device Battery card ──────────────────────────────
-                      Card(
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                          child: Row(
-                            children: [
-                              Text(
-                                "Device Battery",
-                                style: _textStyle(context,
-                                    size: (15 * _scaleForWidth(constraints.maxWidth)).clamp(13, 18).toDouble(),
-                                    weight: FontWeight.w700,
-                                    color: context.brand),
-                              ),
-                              const Spacer(),
-                              _BatteryBadge(percent: _batteryPct, scale: _scaleForWidth(constraints.maxWidth)),
-                            ],
+                      // ── Device Battery card (HIDDEN as requested; kept code intact)
+                      // NOTE: We keep the original code but don't render it.
+                      // If you want to re-enable later, set showBatteryCard=true.
+                      Builder(builder: (_) {
+                        const bool showBatteryCard = false; // ← requested change
+                        if (!showBatteryCard) return const SizedBox.shrink();
+                        return Card(
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                            child: Row(
+                              children: [
+                                Text(
+                                  t.deviceBattery,
+                                  style: _textStyle(context,
+                                      size: (15 * _scaleForWidth(constraints.maxWidth)).clamp(13, 18).toDouble(),
+                                      weight: FontWeight.w700,
+                                      color: context.brand),
+                                ),
+                                const Spacer(),
+                                _BatteryBadge(percent: _batteryPct, scale: _scaleForWidth(constraints.maxWidth)),
+                              ],
+                            ),
                           ),
-                        ),
-                      ),
+                        );
+                      }),
 
+                      // ── Drying Chamber progress
+                      // Show ONLY when there is an active session.
                       const SizedBox(height: 14),
-
-                      // ── Drying Chamber (progress mirrors Automation timer) ─
-                      ValueListenableBuilder<double>(
-                        valueListenable: AutomationPage.progress,
-                        builder: (_, prog, __) {
-                          final pct = (prog * 100).clamp(0, 100);
-                          final scale = _scaleForWidth(constraints.maxWidth);
-                          return Card(
-                            child: Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
+                      ValueListenableBuilder<bool>(
+                        valueListenable: AutomationPage.isActive,
+                        builder: (_, active, __) {
+                          if (!active) return const SizedBox.shrink();
+                          return ValueListenableBuilder<double>(
+                            valueListenable: AutomationPage.progress,
+                            builder: (_, prog, __) {
+                              final pct = (prog * 100).clamp(0, 100);
+                              final scale = _scaleForWidth(constraints.maxWidth);
+                              return Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        "Drying Chamber",
-                                        style: _textStyle(context,
-                                            size: (15 * scale).clamp(13, 18).toDouble(),
-                                            weight: FontWeight.w700,
-                                            color: context.brand),
+                                      Row(
+                                        crossAxisAlignment: CrossAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            t.dryingChamber,
+                                            style: _textStyle(context,
+                                                size: (15 * scale).clamp(13, 18).toDouble(),
+                                                weight: FontWeight.w700,
+                                                color: context.brand),
+                                          ),
+                                          const Spacer(),
+                                          Text(
+                                            "${pct.toStringAsFixed(0)}%",
+                                            style: _textStyle(context,
+                                                size: (14 * scale).clamp(12, 18).toDouble(),
+                                                weight: FontWeight.w800,
+                                                color: Theme.of(context).colorScheme.onSurface),
+                                          ),
+                                        ],
                                       ),
-                                      const Spacer(),
-                                      Text(
-                                        "${pct.toStringAsFixed(0)}%",
-                                        style: _textStyle(context,
-                                            size: (14 * scale).clamp(12, 18).toDouble(),
-                                            weight: FontWeight.w800,
-                                            color: Theme.of(context).colorScheme.onSurface),
+                                      const SizedBox(height: 10),
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(20),
+                                        child: LinearProgressIndicator(
+                                          value: prog,
+                                          minHeight: (10 * scale).clamp(8, 14).toDouble(),
+                                          backgroundColor: context.progressTrack,
+                                        ),
                                       ),
                                     ],
                                   ),
-                                  const SizedBox(height: 10),
-                                  ClipRRect(
-                                    borderRadius: BorderRadius.circular(20),
-                                    child: LinearProgressIndicator(
-                                      value: prog,
-                                      minHeight: (10 * scale).clamp(8, 14).toDouble(),
-                                      backgroundColor: context.progressTrack,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                                ),
+                              );
+                            },
                           );
                         },
                       ),
@@ -677,7 +722,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                "Storage Chamber",
+                                t.storageChamber,
                                 style: _textStyle(
                                   context,
                                   size: (16 * _scaleForWidth(constraints.maxWidth)).clamp(14, 20).toDouble(),
@@ -699,23 +744,24 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                   children: [
                                     _MiniMetricTile(
                                       icon: Icons.thermostat_outlined,
-                                      label: "Temp",
+                                      label: t.temperatureShort,
                                       value: "${_tempC.toStringAsFixed(0)}ºC",
                                     ),
                                     _MiniMetricTile(
                                       icon: Icons.water_drop_outlined,
-                                      label: "Humidity",
+                                      label: t.humidity,
                                       value: "${_humidity.toStringAsFixed(0)}%",
                                     ),
                                     _MiniMetricTile(
                                       icon: Icons.eco_outlined,
-                                      label: "Moisture",
+                                      label: t.moisture,
                                       value: _estMc == null
                                           ? "--%"
                                           : "${_estMc!.toStringAsFixed(0)}%",
                                     ),
                                     _MiniStatusTile(
                                       statusText: _storageStatus,
+                                      statusLabel: t.status,
                                     ),
                                   ],
                                 );
@@ -815,10 +861,12 @@ class _MiniMetricTile extends StatelessWidget {
 
 class _MiniStatusTile extends StatelessWidget {
   final String statusText;
+  final String statusLabel;
   final double scale;
 
   const _MiniStatusTile({
     required this.statusText,
+    required this.statusLabel,
     this.scale = 1,
   });
 
@@ -864,7 +912,7 @@ class _MiniStatusTile extends StatelessWidget {
               ),
               Flexible(
                 child: Text(
-                  "Status",
+                  statusLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.poppins(

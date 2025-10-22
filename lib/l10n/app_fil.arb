@@ -1,0 +1,213 @@
+{
+  "appTitle": "NiceRice",
+  "@@locale": "fil",
+  "language": "Wika",
+  "languageEnglish": "Ingles",
+  "languageFilipino": "Filipino",
+  "connect": "Ikonekta",
+  "disconnect": "Idiskonekta",
+  "selectDevice": "Pumili ng device",
+  "unnamedDevice": "(Walang Pangalan)",
+  "connectedLabel": "Nakakonekta: {name}",
+  "@connectedLabel": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "deviceBattery": "Baterya ng Device",
+  "dryingChamber": "Drying Chamber",
+  "storageChamber": "Storage Chamber",
+  "temperatureShort": "Temp",
+  "humidity": "Halumigmig",
+  "moisture": "Moisture",
+  "status": "Status",
+  "disconnectTitle": "Idiskonekta",
+  "disconnectBody": "Ididiskonekta mo ang kasalukuyang device.",
+  "cancel": "Kanselahin",
+  "confirm": "Kumpirmahin",
+  "bluetoothAndroidOnly": "Android lang ang suportado para sa Bluetooth sa build na ito.",
+  "bluetoothStillOff": "Naka-OFF pa rin ang Bluetooth.",
+  "noDevicesFound": "Walang nakitang device sa paligid.",
+  "deviceDisconnected": "Nadiskonekta ang device",
+  "disconnected": "Nadiskonekta",
+  "connectedTo": "Nakakonekta sa {name} ({addr})",
+  "@connectedTo": {
+    "placeholders": {
+      "name": { "type": "String" },
+      "addr": { "type": "String" }
+    }
+  },
+  "failedToConnect": "Nabigong kumonekta sa {name}",
+  "@failedToConnect": {
+    "placeholders": {
+      "name": { "type": "String" }
+    }
+  },
+  "bluetoothError": "Bluetooth error: {error}",
+  "@bluetoothError": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "connectError": "Connect error: {error}",
+  "@connectError": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+  "unexpectedError": "Hindi inaasahang error: {error}",
+  "@unexpectedError": {
+    "placeholders": {
+      "error": { "type": "String" }
+    }
+  },
+
+  "bracketIdeal": "tamang ani",
+  "bracketLate": "huling ani (masyadong tuyo)",
+  "bracketEarly": "maagang ani (masyadong basa)",
+
+  "connectToHomeTitle": "Kumonekta sa NiceRice sa Home",
+  "connectToHomeBody": "Bago magsimula, i-on ang Bluetooth at kumonekta sa iyong NiceRice device mula sa Home page.",
+  "connectToHomeBodyAlt": "Bago magsimula, buksan ang Bluetooth at ikonekta ang NiceRice device sa Home page.",
+
+  "goToHome": "Pumunta sa Home",
+  "start": "Simulan",
+  "startSame": "Gamitin ang dati",
+  "sessionPlan": "Plano ng Session",
+  "initialMoistureContent": "Inisyal na Moisture Content",
+  "targetMoistureContent": "Target na Moisture Content",
+  "targetLower": "target",
+
+  "humidity": "Halumigmig",
+  "temperature": "Temperatura",
+  "estimatedTime": "Tinatayang oras",
+  "completeInputsToEstimate": "Kumpletuhin ang inputs para makalkula ang oras",
+  "estimating": "Kinukwenta…",
+  "atOrBelowTarget": "Nasa o mas mababa sa target",
+  "minutesShort": "min",
+  "hoursShort": "h",
+
+  "initializing": "Nagsisimula...",
+  "waitForChamber": "Maghintay hanggang umabot sa 45–70°C ang chamber",
+  "targetTempRange": "Target: temperatura sa pagitan ng 45°C at 70°C",
+  "putGrainsNow": "Pwede mo nang ilagay ang palay",
+  "chamberReady": "Handa na ang chamber.",
+  "startDrying": "Simulan ang Pagpapatuyo",
+
+  "sessionAlreadyRunning": "May tumatakbong session.",
+  "unableToComputeEta": "Hindi makakalkula ang tinatayang oras.",
+  "dryingStarted": "Nagsimula ang pagpapatuyo",
+  "targetReachedEnded": "Naabot ang target • Tapos na ang session",
+  "noPreviousSettings": "Walang nakaraang settings.",
+  "startNewSession": "Mag-umpisa ng Panibagong Session",
+  "startNewSessionBody": "Gamitin ang nakaraang settings para sa bagong session?",
+  "usePreviousSettings": "Gamitin ang nakaraang settings",
+
+  "sessionTimer": "Session Timer",
+  "paused": "Nakahinto",
+  "running": "Tumatakbo",
+  "idle": "Idle",
+  "toTarget": "hanggang {target}% MC",
+  "@toTarget": { "placeholders": { "target": {} } },
+
+  "play": "Play",
+  "pause": "I-pause",
+  "stop": "Itigil",
+  "stopSession": "Itigil ang Session",
+  "stopSessionBody": "Ititigil mo ang kasalukuyang session.",
+  "safetyStop": "Nagana ang safety stop ng device",
+
+  "tip_9_9_5": "9–9.5% • para sa pangmatagalang pag-iimbak ng binhi",
+  "tip_10_11_5": "10–11.5% • para sa panandaliang pag-iimbak ng binhi",
+  "tip_12_12_5": "12–12.5% • para sa imbakan na lampas 3 buwan",
+  "tip_13_14": "13–14% • para sa imbakan sa loob ng 2–3 buwan (inirerekomenda para sa paggiling)",
+  "tip_selectTarget": "Pumili ng target na moisture content (9–14%)",
+  "@@locale": "fil",
+
+  "analytics_exportPdf": "I-export ang PDF",
+
+  "analytics_exportAnalyticsPdf": "I-export ang Analytics PDF",
+  "analytics_chooseSessions": "Pumili ng mga session na isasama.",
+  "analytics_currentSessionOnly": "Kasalukuyang session lang",
+  "analytics_selectSessions": "Pumili ng mga session…",
+  "analytics_generatePdf": "Gumawa ng PDF",
+
+  "analytics_renameSession": "Palitan ang pangalan ng session",
+  "analytics_sessionName": "Pangalan ng session",
+  "common_cancel": "Kanselahin",
+  "common_save": "I-save",
+
+  "analytics_reportTitle": "Ulat sa Session ng NiceRice",
+  "analytics_environmentIfAvailable": "Kapaligiran (kung mayroon)",
+  "analytics_notes": "Mga Tala",
+  "analytics_notesBody": "Inihanda ng NiceRice Analytics. Kasama sa buod ang target, preset, layunin, tagal, at mga batayang estadistika.",
+
+  "analytics_targetMoistureContent": "Target na Moisture Content",
+  "analytics_presetSelected": "Napiling Preset",
+  "analytics_intendedUse": "Layunin",
+  "analytics_estimatedMoistureLoss": "Tinatayang Bawas sa Moisture",
+  "analytics_started": "Nagsimula",
+  "analytics_ended": "Natapos",
+  "analytics_durationInitCooldown": "Tagal (kasama ang pagsisimula at paglamig)",
+
+  "analytics_estDefault": "~3–5% (tantya)",
+  "analytics_estAbbrev": "(tantya)",
+
+  "analytics_temperatureAvgRange": "Temperatura (avg / saklaw)",
+  "analytics_humidityAvgRange": "Halumigmig (avg / saklaw)",
+  "analytics_environment": "Kapaligiran",
+  "analytics_noEnvData": "Walang datos ng temperatura/halumigmig",
+  "analytics_noEnvDataForSession": "Walang datos ng temperatura/halumigmig para sa session na ito.",
+
+  "analytics_emptyHistory": "Wala pang natapos na operasyon.\nMagpatakbo muna sa Automation para makabuo ng history.",
+  "analytics_noSessionsForFilter": "Walang session para sa napiling filter.",
+
+  "analytics_tempHumOverview": "Buod ng Temperatura at Halumigmig",
+
+  "analytics_interpretation": "Pagsusuri",
+  "analytics_initialMoisture": "Inisyal na Moisture",
+  "analytics_targetMoisture": "Target na Moisture",
+  "analytics_notEnoughData": "Kulang ang datos para sa pagsusuri.",
+  "analytics_mcDropped": "Bumaba ang moisture mula {from}% hanggang {to}% sa loob ng {duration}.",
+  "@analytics_mcDropped": {
+    "placeholders": {
+      "from": { "type": "String" },
+      "to": { "type": "String" },
+      "duration": { "type": "String" }
+    }
+  },
+  "analytics_mcRose": "Tumaas ang moisture mula {from}% hanggang {to}% sa loob ng {duration}.",
+  "@analytics_mcRose": {
+    "placeholders": {
+      "from": { "type": "String" },
+      "to": { "type": "String" },
+      "duration": { "type": "String" }
+    }
+  },
+  "analytics_mcStayed": "Nanatili ang moisture sa {value}% sa loob ng {duration}.",
+  "@analytics_mcStayed": {
+    "placeholders": {
+      "value": { "type": "String" },
+      "duration": { "type": "String" }
+    }
+  },
+
+  "analytics_sessionSummary": "Buod ng Session",
+  "analytics_start": "Simula",
+  "analytics_end": "Wakas",
+  "analytics_duration": "Tagal",
+
+  "analytics_points": "Mga Punto",
+  "analytics_average": "Average",
+  "analytics_min": "Min",
+  "analytics_max": "Max",
+
+  "filters_today": "Ngayon",
+  "filters_yesterday": "Kahapon",
+  "filters_last3": "Huling 3 araw",
+  "filters_last7": "Huling 7 araw",
+
+  "tooltip_renameSession": "Palitan ang pangalan",
+  "analytics_renameSaved": "Na-update ang pangalan ng session.",
+  "analytics_renameFailed": "Hindi na-save ang pangalan sa database. Itatago muna namin ito nang lokal sa device na ito."
+}

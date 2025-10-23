@@ -161,8 +161,9 @@ class _GlassNavBar extends StatelessWidget {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     // Match your Canva style: green selected, muted gray unselected
-    final selectedColor =
-        isDark ? const Color(0xFF77C08A) : const Color(0xFF2E6B3A);
+    final selectedColor = isDark
+        ? const Color(0xFF77C08A)
+        : const Color(0xFF2E6B3A);
     final unselectedColor = cs.onSurface.withOpacity(isDark ? 0.55 : 0.45);
 
     final items = <_NavItemData>[

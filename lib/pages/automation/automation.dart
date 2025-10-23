@@ -193,9 +193,35 @@ class _AutomationPageState extends State<AutomationPage>
     return true;
   }
 
+  // ---------- NEW: unified reaction when BT disconnects ----------
+  void _handleSessionStopOnDisconnect() {
+    // Stop any preheat & running timers, persist if needed, and notify.
+    if (_waitingForPreheat) {
+      _waitingForPreheat = false;
+      _preheatReady = false;
+    }
+    if (_isRunning || _isPaused) {
+      // This will cancel ticker, persist history, and show "Session saved"
+      _finishSession(); // manual stop path
+      final t = AppLocalizations.of(context)!;
+      Fluttertoast.showToast(msg: t.deviceDisconnected);
+    }
+  }
+
+  late final VoidCallback _btConnListener;
+
   @override
   void initState() {
     super.initState();
+
+    // 🔔 Listen for BT connection state changes published by HomePage
+    _btConnListener = () {
+      if (!AutomationPage.btConnected.value) {
+        _handleSessionStopOnDisconnect();
+      }
+    };
+    AutomationPage.btConnected.addListener(_btConnListener);
+
     _bleChannel.setMethodCallHandler(_handleBluetoothData);
 
     // Poll environment sensor every 3s
@@ -209,6 +235,9 @@ class _AutomationPageState extends State<AutomationPage>
   void dispose() {
     _ticker?.cancel();
     _sensorTimer?.cancel();
+
+    // remove BT listener
+    AutomationPage.btConnected.removeListener(_btConnListener);
 
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
@@ -323,6 +352,10 @@ class _AutomationPageState extends State<AutomationPage>
           if (_isRunning) _finishSession();
         }
       }
+    }
+    // NEW: handle explicit native disconnect callback (mirrors HomePage)
+    else if (call.method == "onDisconnected") {
+      _handleSessionStopOnDisconnect();
     }
   }
 
@@ -614,6 +647,57 @@ class _AutomationPageState extends State<AutomationPage>
     Fluttertoast.showToast(msg: t.dryingStarted);
   }
 
+  // NEW: tap-to-dismiss "Session saved" popup
+  Future<void> _showSessionSavedPopup() async {
+    if (!mounted) return;
+    final cs = Theme.of(context).colorScheme;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black54,
+      builder: (ctx) => GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.of(ctx).pop(),
+        child: Center(
+          child: Card(
+            elevation: 6,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.save_rounded, size: 48, color: Colors.green),
+                  const SizedBox(height: 12),
+                  Text(
+                    "Session saved",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: cs.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    "Tap anywhere to dismiss",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: cs.onSurface.withOpacity(0.65),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _finishSession({bool auto = false}) async {
     final t = AppLocalizations.of(context)!;
 
@@ -627,6 +711,7 @@ class _AutomationPageState extends State<AutomationPage>
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
 
+    // ✅ Always persist when a session ends (completed or stopped)
     if (_currentOpId != null) {
       final id = _currentOpId!;
       _currentOpId = null;
@@ -635,14 +720,18 @@ class _AutomationPageState extends State<AutomationPage>
       await OperationHistory.instance.endOperation(id);
       await _safeAllStop();
     } else {
+      // Nothing to persist (e.g., stopped during preheat)
       await _safeAllStop();
     }
 
+    // If it auto-completed to target, show the existing "Drying done" popup first.
     if (auto) {
       Fluttertoast.showToast(msg: t.targetReachedEnded);
-      // ⬇️ Tap-to-dismiss popup after auto-complete
       await _showDryingDonePopup();
     }
+
+    // ✅ Then always show "Session saved" popup (tap-to-dismiss).
+    await _showSessionSavedPopup();
   }
 
   // ⬇️ Tap-to-dismiss "Drying is done" popup
@@ -1312,7 +1401,7 @@ class _AutomationPageState extends State<AutomationPage>
                                                           _preheatReady = false;
                                                           _safeAllStop();
                                                         }
-                                                        _finishSession();
+                                                        _finishSession(); // manual stop saves + popup
                                                       },
                                                       child: Text(t.confirm,
                                                           style: GoogleFonts.poppins(

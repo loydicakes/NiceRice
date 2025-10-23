@@ -373,60 +373,32 @@ class _SignUpPageState extends State<SignUpPage> {
                     ),
                     const SizedBox(height: 18),
 
-                    Row(
-                      children: [
-                        const Expanded(child: Divider(color: borderGrey)),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            "or",
-                            style: GoogleFonts.poppins(color: themeGreen),
-                          ),
-                        ),
-                        const Expanded(child: Divider(color: borderGrey)),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-
-                    SizedBox(
-                      height: 48,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          /* TODO: implement Google sign-up */
-                        },
-                        icon: Image.asset(
-                          "assets/images/google.png",
-                          height: 20,
-                        ),
-                        label: Text(
-                          "Sign up with Google",
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: themeGreen,
-                          ),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          side: const BorderSide(color: borderGrey),
-                          backgroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
                     const SizedBox(height: 16),
 
                     Center(
-                      child: GestureDetector(
-                        onTap: () =>
-                            Navigator.pushReplacementNamed(context, '/login'),
-                        child: Text(
-                          "Already have an account? Sign in here",
+                      child: RichText(
+                        text: TextSpan(
                           style: GoogleFonts.poppins(
-                            fontWeight: FontWeight.w600,
-                            color: themeGreen,
+                            color: Colors.black87,
+                            fontSize: 14,
                           ),
+                          children: [
+                            const TextSpan(text: "Already have an account? "),
+                            TextSpan(
+                              text: "Sign in here",
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w600,
+                                color: themeGreen,
+                                decoration: TextDecoration.underline,
+                                decorationThickness: 1.5, // optional
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () => Navigator.pushReplacementNamed(
+                                  context,
+                                  '/login',
+                                ),
+                            ),
+                          ],
                         ),
                       ),
                     ),

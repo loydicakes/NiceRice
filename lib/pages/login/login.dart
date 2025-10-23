@@ -79,21 +79,28 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   String _friendlyError(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'invalid-email':
-        return 'That email looks invalid.';
-      case 'user-disabled':
-        return 'This user has been disabled.';
-      case 'user-not-found':
-        return 'No account found with that email.';
-      case 'wrong-password':
-        return 'Incorrect password.';
-      case 'too-many-requests':
-        return 'Too many attempts. Please try again later.';
-      default:
-        return 'Auth error: ${e.message ?? e.code}';
-    }
+  final code = e.code; // e.g. "invalid-credential", "user-not-found", etc.
+
+  switch (code) {
+    case 'invalid-email':
+      return 'Please enter a valid email address.';
+    case 'user-disabled':
+      return 'This account has been disabled.';
+    case 'too-many-requests':
+      return 'Too many attempts. Please try again later.';
+    case 'network-request-failed':
+      return 'Network error. Check your connection and try again.';
+    // Firebase often uses these generic ones for wrong email/password:
+    case 'invalid-credential':
+    case 'invalid-login-credentials':
+    case 'user-not-found':
+    case 'wrong-password':
+      return 'Email or password is incorrect.';
+    default:
+      // Final safety net: never show raw backend text
+      return 'Couldn’t sign you in. Please try again.';
   }
+}
 
   Future<void> _resetPassword() async {
     final email = _email.text.trim();
@@ -327,63 +334,34 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                     const SizedBox(height: 24),
 
-                    Row(
-                      children: [
-                        const Expanded(child: Divider(color: borderGrey)),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            "or",
-                            style: GoogleFonts.poppins(color: themeGreen),
-                          ),
-                        ),
-                        const Expanded(child: Divider(color: borderGrey)),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    SizedBox(
-                      height: 48,
-                      child: OutlinedButton.icon(
-                        onPressed: () {
-                          /* TODO: Google sign-in */
-                        },
-                        icon: Image.asset(
-                          "assets/images/google.png",
-                          height: 20,
-                        ),
-                        label: Text(
-                          "Sign in with Google",
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                            color: themeGreen,
-                          ),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                          side: const BorderSide(color: borderGrey),
-                          backgroundColor: Colors.white,
-                        ),
-                      ),
-                    ),
+                    
                     const SizedBox(height: 16),
 
                     Center(
-                      child: GestureDetector(
-                        onTap: () =>
-                            Navigator.pushReplacementNamed(context, '/signup'),
-                        child: Text(
-                          "Don’t have an account? Sign up here",
+                      child: RichText(
+                        text: TextSpan(
                           style: GoogleFonts.poppins(
-                            fontWeight: FontWeight.w600,
-                            color: themeGreen,
+                            color: Colors.black87,
+                            fontSize: 14,
                           ),
+                          children: [
+                            const TextSpan(text: "Don’t have an account? "),
+                            TextSpan(
+                              text: "Sign up here",
+                              style: GoogleFonts.poppins(
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF2D4F2B), // themeGreen
+                                decoration: TextDecoration.underline,
+                                decorationThickness: 1.5,
+                              ),
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () => Navigator.pushReplacementNamed(context, '/signup'),
+                            ),
+                          ],
                         ),
                       ),
                     ),
+
                   ],
                 ),
               ),

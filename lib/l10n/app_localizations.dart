@@ -809,7 +809,7 @@ abstract class AppLocalizations {
   /// No description provided for @analytics_sessionSummary.
   ///
   /// In en, this message translates to:
-  /// **'Session Summary'**
+  /// **'Drying Speed'**
   String get analytics_sessionSummary;
 
   /// No description provided for @analytics_start.

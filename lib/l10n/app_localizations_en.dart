@@ -394,7 +394,7 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get analytics_sessionSummary => 'Session Summary';
+  String get analytics_sessionSummary => 'Drying Speed';
 
   @override
   String get analytics_start => 'Start';

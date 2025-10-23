@@ -189,7 +189,7 @@
     }
   },
 
-  "analytics_sessionSummary": "Session Summary",
+  "analytics_sessionSummary": "Drying Speed",
   "analytics_start": "Start",
   "analytics_end": "End",
   "analytics_duration": "Duration",

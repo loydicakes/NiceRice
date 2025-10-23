@@ -27,7 +27,7 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   Timer? _sensorTimer;
   Timer? _clockTimer;
 
-  // ✅ Connection watchdog (from previous step)
+  // ✅ Connection watchdog
   Timer? _connWatchTimer;
   DateTime? _lastBleRxAt;
   static const Duration _disconnectGrace = Duration(seconds: 10);
@@ -37,32 +37,18 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   double _tempC = 0;
   double _humidity = 0;
 
-  // Estimated Moisture Content (placeholder until we finalize EMC logic)
-  double? _estMc; // null means "not computed yet"
-
   // Storage status
   String _storageStatus = ""; // intentionally blank for now
-
-  // Battery percentage (placeholder for now)
-  int _batteryPct = 76;
 
   // Platform channel (no plugins, no gradle changes)
   static const MethodChannel _bleChannel = MethodChannel('app.bluetooth/controls');
 
   bool _isConnecting = false;
 
-  // NEW: track connection state so we can flip the button to "Disconnect"
+  // Track connection state so we can flip the button to "Disconnect"
   bool _isConnected = false;
   String? _connectedName;
   String? _connectedAddr;
-
-  IconData _batteryIcon(int percent) {
-    if (percent >= 80) return Icons.battery_full_rounded;
-    if (percent >= 60) return Icons.battery_6_bar_rounded;
-    if (percent >= 40) return Icons.battery_4_bar_rounded;
-    if (percent >= 20) return Icons.battery_2_bar_rounded;
-    return Icons.battery_alert_rounded;
-  }
 
   @override
   void initState() {
@@ -84,11 +70,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
     // Poll environment sensor every 3s
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
-      if (!mounted) return;
+      if (!mounted || !_isConnected) return;
       _sendCommand("GET_DHT2");
       _sendCommand("GET_STATUS");
-      _sendCommand("GET_BAT");
-      // TODO: compute _estMc when math is ready
     });
 
     // Tick clock (for the header date/time)
@@ -166,10 +150,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       _isConnected = false;
       _connectedName = null;
       _connectedAddr = null;
-      // 1. MODIFICATION: Reset storage chamber data
+      // Reset storage chamber data
       _tempC = 0;
       _humidity = 0;
-      _estMc = null;
       _storageStatus = "";
     });
     AutomationPage.btConnected.value = false;
@@ -198,12 +181,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
             if (key == 'T') t = val;
           }
         }
-        if (h != null && t != null) {
-          setState(() {
-            _humidity = h!;
-            _tempC = t!;
-          });
-        }
+       if (h != null && t != null) {
+        setState(() {
+          _humidity = h!; // Add !
+          _tempC = t!;    // Add !
+        });
+      }
         continue;
       }
 
@@ -212,14 +195,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         setState(() {
           _storageStatus = txt;
         });
-        continue;
-      }
-
-      if (data.startsWith("BAT:")) {
-        final v = int.tryParse(data.replaceFirst("BAT:", "").trim());
-        if (v != null) {
-          setState(() => _batteryPct = v.clamp(0, 100));
-        }
         continue;
       }
     }
@@ -367,10 +342,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         _isConnected = false;
         _connectedName = null;
         _connectedAddr = null;
-        // 1. MODIFICATION: Reset storage chamber data
+        // Reset storage chamber data
         _tempC = 0;
         _humidity = 0;
-        _estMc = null;
         _storageStatus = "";
       });
       AutomationPage.btConnected.value = false;
@@ -404,8 +378,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   style: _textStyle(ctx, size: 14, weight: FontWeight.w400, color: cs.onSurface.withOpacity(0.9)),
                 ),
                 const SizedBox(height: 18),
-
-                // ✅ Buttons: right-aligned, side-by-side, consistent spacing
                 Align(
                   alignment: Alignment.centerRight,
                   child: Row(
@@ -452,7 +424,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     final now = DateTime.now();
     final t = AppLocalizations.of(context)!;
 
-    final Color paleRed = const Color(0xFFF28B82);
     final Color paleRedBorder = const Color(0xFFF28B82);
     final Color paleRedText = const Color(0xFFD93025);
 
@@ -466,7 +437,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
           builder: (context, constraints) {
             final maxW = constraints.maxWidth;
             final bool isTablet = maxW >= 700;
-            final scale = _scaleForWidth(maxW);
             final double contentMaxWidth = isTablet ? 800.0 : 600.0;
 
             return Align(
@@ -498,8 +468,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                     ),
                                   ),
                                   const SizedBox(width: 16),
-
-                                  // MOVED: Stick the date/time/button block to the RIGHT
                                   Expanded(
                                     child: Padding(
                                       padding: const EdgeInsets.only(left: 40),
@@ -591,10 +559,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                                               mainAxisSize: MainAxisSize.min,
                                                               children: [
                                                                 if (_isConnecting)
-                                                                  Padding(
-                                                                    padding: const EdgeInsets.only(right: 8.0),
+                                                                  const Padding(
+                                                                    padding: EdgeInsets.only(right: 8.0),
                                                                     child: SizedBox(
-                                                                      width: 16, height: 16,
+                                                                      width: 16,
+                                                                      height: 16,
                                                                       child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                                                                     ),
                                                                   ),
@@ -638,60 +607,59 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                         ),
                       ),
 
-                      const SizedBox(height: 14),
-
-                      // ── Drying Chamber progress
-                      // Show ONLY when there is an active session.
-                      const SizedBox(height: 14),
+                      // ── Drying Chamber progress (conditionally shown) ──
                       ValueListenableBuilder<bool>(
                         valueListenable: AutomationPage.isActive,
                         builder: (_, active, __) {
                           if (!active) return const SizedBox.shrink();
-                          return ValueListenableBuilder<double>(
-                            valueListenable: AutomationPage.progress,
-                            builder: (_, prog, __) {
-                              final pct = (prog * 100).clamp(0, 100);
-                              final scale = _scaleForWidth(constraints.maxWidth);
-                              return Card(
-                                child: Padding(
-                                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Row(
-                                        crossAxisAlignment: CrossAxisAlignment.center,
-                                        children: [
-                                          Text(
-                                            t.dryingChamber,
-                                            style: _textStyle(context,
-                                                size: (15 * scale).clamp(13, 18).toDouble(),
-                                                weight: FontWeight.w700,
-                                                color: context.brand),
-                                          ),
-                                          const Spacer(),
-                                          Text(
-                                            "${pct.toStringAsFixed(0)}%",
-                                            style: _textStyle(context,
-                                                size: (14 * scale).clamp(12, 18).toDouble(),
-                                                weight: FontWeight.w800,
-                                                color: Theme.of(context).colorScheme.onSurface),
-                                          ),
-                                        ],
-                                      ),
-                                      const SizedBox(height: 10),
-                                      ClipRRect(
-                                        borderRadius: BorderRadius.circular(20),
-                                        child: LinearProgressIndicator(
-                                          value: prog,
-                                          minHeight: (10 * scale).clamp(8, 14).toDouble(),
-                                          backgroundColor: context.progressTrack,
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 14.0),
+                            child: ValueListenableBuilder<double>(
+                              valueListenable: AutomationPage.progress,
+                              builder: (_, prog, __) {
+                                final pct = (prog * 100).clamp(0, 100);
+                                final scale = _scaleForWidth(constraints.maxWidth);
+                                return Card(
+                                  child: Padding(
+                                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Row(
+                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          children: [
+                                            Text(
+                                              t.dryingChamber,
+                                              style: _textStyle(context,
+                                                  size: (15 * scale).clamp(13, 18).toDouble(),
+                                                  weight: FontWeight.w700,
+                                                  color: context.brand),
+                                            ),
+                                            const Spacer(),
+                                            Text(
+                                              "${pct.toStringAsFixed(0)}%",
+                                              style: _textStyle(context,
+                                                  size: (14 * scale).clamp(12, 18).toDouble(),
+                                                  weight: FontWeight.w800,
+                                                  color: Theme.of(context).colorScheme.onSurface),
+                                            ),
+                                          ],
                                         ),
-                                      ),
-                                    ],
+                                        const SizedBox(height: 10),
+                                        ClipRRect(
+                                          borderRadius: BorderRadius.circular(20),
+                                          child: LinearProgressIndicator(
+                                            value: prog,
+                                            minHeight: (10 * scale).clamp(8, 14).toDouble(),
+                                            backgroundColor: context.progressTrack,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
+                                );
+                              },
+                            ),
                           );
                         },
                       ),
@@ -715,7 +683,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                 ),
                               ),
                               const SizedBox(height: 12),
-
                               LayoutBuilder(builder: (ctx, box) {
                                 final isWide = box.maxWidth >= 520;
                                 return GridView.count(
@@ -736,14 +703,13 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                       label: t.humidity,
                                       value: "${_humidity.toStringAsFixed(0)}%",
                                     ),
-                                    _MiniMetricTile(
-                                      icon: Icons.eco_outlined,
-                                      label: t.moisture,
-                                      value: _estMc == null
-                                          ? "--%"
-                                          : "${_estMc!.toStringAsFixed(0)}%",
+                                    _MiniStatusTile(
+                                      icon: Icons.air_outlined,
+                                      statusText: "OFF",
+                                      statusLabel: "Fan",
                                     ),
                                     _MiniStatusTile(
+                                      icon: Icons.inventory_2_outlined,
                                       statusText: _storageStatus,
                                       statusLabel: t.status,
                                     ),
@@ -842,13 +808,14 @@ class _MiniMetricTile extends StatelessWidget {
     );
   }
 }
-
 class _MiniStatusTile extends StatelessWidget {
+  final IconData icon;
   final String statusText;
   final String statusLabel;
   final double scale;
 
   const _MiniStatusTile({
+    required this.icon,
     required this.statusText,
     required this.statusLabel,
     this.scale = 1,
@@ -862,6 +829,7 @@ class _MiniStatusTile extends StatelessWidget {
       builder: (context, c) {
         final shortest = c.biggest.shortestSide;
         final double iconSize  = (shortest * 0.18).clamp(16, 28).toDouble();
+        // ✅ THIS LINE IS NOW THE SAME AS THE OTHER TILE
         final double valueSize = (shortest * 0.32).clamp(22, 52).toDouble();
         final double labelSize = (shortest * 0.14).clamp(11, 20).toDouble();
 
@@ -886,7 +854,7 @@ class _MiniStatusTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(Icons.storage_outlined, color: context.brand, size: iconSize),
+              Icon(icon, color: context.brand, size: iconSize),
               const Spacer(),
               FittedBox(
                 fit: BoxFit.scaleDown,

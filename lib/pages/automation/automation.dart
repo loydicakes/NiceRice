@@ -281,7 +281,6 @@ class _AutomationPageState extends State<AutomationPage>
   Future<void> _auxOn() async {
     await _sendCommand("ON2");
     await _sendCommand("ON3");
-    await _sendCommand("ON4");
   }
 
   Future<void> _auxOff() async {
@@ -442,6 +441,7 @@ class _AutomationPageState extends State<AutomationPage>
     _waitingForPreheat = true;
     _preheatReady = _meetsPreheatThresholds();
     await _auxOn();
+    await _sendCommand("PULSE4");
 
     final readyNotifier = ValueNotifier<bool>(_preheatReady);
 
@@ -1399,8 +1399,8 @@ class _AutomationPageState extends State<AutomationPage>
                                                         if (_waitingForPreheat) {
                                                           _waitingForPreheat = false;
                                                           _preheatReady = false;
-                                                          _safeAllStop();
                                                         }
+                                                        _sendCommand("MOVE_SERVOS_TO_STOP_POSITION");
                                                         _finishSession(); // manual stop saves + popup
                                                       },
                                                       child: Text(t.confirm,

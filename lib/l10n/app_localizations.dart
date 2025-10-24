@@ -431,7 +431,7 @@ abstract class AppLocalizations {
   /// No description provided for @startDrying.
   ///
   /// In en, this message translates to:
-  /// **'Start Drying'**
+  /// **'Start'**
   String get startDrying;
 
   /// No description provided for @sessionAlreadyRunning.

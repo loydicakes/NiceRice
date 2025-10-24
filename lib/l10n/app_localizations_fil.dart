@@ -191,7 +191,7 @@ class AppLocalizationsFil extends AppLocalizations {
   String get chamberReady => 'Handa na ang chamber.';
 
   @override
-  String get startDrying => 'Simulan ang Pagpapatuyo';
+  String get startDrying => 'Simulan';
 
   @override
   String get sessionAlreadyRunning => 'May tumatakbong session.';

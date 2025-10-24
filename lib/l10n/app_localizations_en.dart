@@ -190,7 +190,7 @@ class AppLocalizationsEn extends AppLocalizations {
   String get chamberReady => 'Chamber is ready.';
 
   @override
-  String get startDrying => 'Start Drying';
+  String get startDrying => 'Start';
 
   @override
   String get sessionAlreadyRunning => 'A session is already running.';

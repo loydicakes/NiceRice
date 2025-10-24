@@ -1,5 +1,8 @@
+// lib/pages/login/login.dart
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/gestures.dart';
 
@@ -32,7 +35,6 @@ class _LoginPageState extends State<LoginPage> {
   @override
   void initState() {
     super.initState();
-    // ensure no cross-page mirroring
     _email.text = '';
     _password.text = '';
     _email.addListener(() => setState(() {}));
@@ -46,6 +48,18 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  Future<bool> _isUserSuspended(String uid) async {
+    try {
+      final doc =
+          await FirebaseFirestore.instance.collection('users').doc(uid).get();
+      if (!doc.exists) return false;
+
+      return doc.data()?['isSuspended'] ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -55,22 +69,36 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      final cred = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _email.text.trim(),
         password: _password.text,
       );
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Signed in!', style: GoogleFonts.poppins())),
-      );
+      final user = cred.user;
+      if (user == null) return;
 
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        '/main',
-        (route) => false,
-        arguments: 0, // Home tab
-      );
+      await user.reload();
+      final freshUser = FirebaseAuth.instance.currentUser;
+
+      if (freshUser != null) {
+        if (!freshUser.emailVerified) {
+          setState(() =>
+              _errorText = 'Please verify your email before signing in.');
+          await FirebaseAuth.instance.signOut();
+          return;
+        }
+
+        final suspended = await _isUserSuspended(freshUser.uid);
+        if (suspended) {
+          setState(() => _errorText = 'Your account has been suspended.');
+          await FirebaseAuth.instance.signOut();
+          return;
+        }
+
+        if (!mounted) return;
+        Navigator.pushNamedAndRemoveUntil(
+            context, '/main', (route) => false, arguments: 0);
+      }
     } on FirebaseAuthException catch (e) {
       setState(() => _errorText = _friendlyError(e));
     } finally {
@@ -79,28 +107,25 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   String _friendlyError(FirebaseAuthException e) {
-  final code = e.code; // e.g. "invalid-credential", "user-not-found", etc.
-
-  switch (code) {
-    case 'invalid-email':
-      return 'Please enter a valid email address.';
-    case 'user-disabled':
-      return 'This account has been disabled.';
-    case 'too-many-requests':
-      return 'Too many attempts. Please try again later.';
-    case 'network-request-failed':
-      return 'Network error. Check your connection and try again.';
-    // Firebase often uses these generic ones for wrong email/password:
-    case 'invalid-credential':
-    case 'invalid-login-credentials':
-    case 'user-not-found':
-    case 'wrong-password':
-      return 'Email or password is incorrect.';
-    default:
-      // Final safety net: never show raw backend text
-      return 'Couldn’t sign you in. Please try again.';
+    final code = e.code;
+    switch (code) {
+      case 'invalid-email':
+        return 'Please enter a valid email address.';
+      case 'user-disabled':
+        return 'This account has been disabled.';
+      case 'too-many-requests':
+        return 'Too many attempts. Please try again later.';
+      case 'network-request-failed':
+        return 'Network error. Check your connection and try again.';
+      case 'invalid-credential':
+      case 'invalid-login-credentials':
+      case 'user-not-found':
+      case 'wrong-password':
+        return 'Email or password is incorrect.';
+      default:
+        return 'Couldn’t sign you in. Please try again.';
+    }
   }
-}
 
   Future<void> _resetPassword() async {
     final email = _email.text.trim();
@@ -113,10 +138,8 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Password reset email sent. Check your inbox.',
-            style: GoogleFonts.poppins(),
-          ),
+          content: Text('Password reset email sent. Check your inbox.',
+              style: GoogleFonts.poppins()),
         ),
       );
     } on FirebaseAuthException catch (e) {
@@ -173,7 +196,6 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo
               Container(
                 height: 150,
                 width: 150,
@@ -185,7 +207,6 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 16),
-
               Text(
                 "Sign in to your account",
                 style: GoogleFonts.poppins(
@@ -195,7 +216,6 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
               const SizedBox(height: 16),
-
               if (_errorText != null) ...[
                 Text(
                   _errorText!,
@@ -204,24 +224,19 @@ class _LoginPageState extends State<LoginPage> {
                 ),
                 const SizedBox(height: 12),
               ],
-
               Form(
                 key: _formKey,
-                autovalidateMode: AutovalidateMode.disabled, // per-field only
+                autovalidateMode: AutovalidateMode.disabled,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Email
                     TextFormField(
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(
                         hint: "Email",
-                        prefix: const Icon(
-                          Icons.email_outlined,
-                          color: borderGrey,
-                        ),
+                        prefix: const Icon(Icons.email_outlined, color: borderGrey),
                       ),
                       autovalidateMode: AutovalidateMode.onUserInteraction,
                       validator: (v) {
@@ -232,18 +247,14 @@ class _LoginPageState extends State<LoginPage> {
                       },
                     ),
                     const SizedBox(height: 16),
-
-                    // Password
                     TextFormField(
                       controller: _password,
                       obscureText: _obscure,
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(
                         hint: "Password",
-                        prefix: const Icon(
-                          Icons.lock_outline,
-                          color: borderGrey,
-                        ),
+                        prefix:
+                            const Icon(Icons.lock_outline, color: borderGrey),
                         suffix: IconButton(
                           icon: Icon(
                             _obscure ? Icons.visibility_off : Icons.visibility,
@@ -260,7 +271,6 @@ class _LoginPageState extends State<LoginPage> {
                         return null;
                       },
                     ),
-
                     Align(
                       alignment: Alignment.centerRight,
                       child: TextButton(
@@ -272,14 +282,12 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                     ),
                     const SizedBox(height: 8),
-
-                    // Policies row (login: always checked & disabled)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Checkbox(
-                          value: true,
-                          onChanged: null, // disabled on login
+                          value: true,      // <-- Always checked
+                          onChanged: null,  // <-- Disabled
                           activeColor: themeGreen,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(4),
@@ -290,10 +298,7 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 12),
-
-                    // Continue Button
                     SizedBox(
                       height: 50,
                       child: ElevatedButton(
@@ -305,14 +310,11 @@ class _LoginPageState extends State<LoginPage> {
                             borderRadius: BorderRadius.circular(30),
                           ),
                         ),
-                        onPressed: _isFormBasicallyValid && !_loading
-                            ? _submit
-                            : null,
+                        onPressed:
+                            _isFormBasicallyValid && !_loading ? _submit : null,
                         child: _loading
                             ? const CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              )
+                                color: Colors.white, strokeWidth: 2)
                             : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -324,19 +326,14 @@ class _LoginPageState extends State<LoginPage> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  const Icon(
-                                    Icons.arrow_forward,
-                                    color: Colors.white,
-                                  ),
+                                  const Icon(Icons.arrow_forward,
+                                      color: Colors.white),
                                 ],
                               ),
                       ),
                     ),
                     const SizedBox(height: 24),
-
-                    
                     const SizedBox(height: 16),
-
                     Center(
                       child: RichText(
                         text: TextSpan(
@@ -350,18 +347,18 @@ class _LoginPageState extends State<LoginPage> {
                               text: "Sign up here",
                               style: GoogleFonts.poppins(
                                 fontWeight: FontWeight.w600,
-                                color: Color(0xFF2D4F2B), // themeGreen
+                                color: const Color(0xFF2D4F2B),
                                 decoration: TextDecoration.underline,
                                 decorationThickness: 1.5,
                               ),
                               recognizer: TapGestureRecognizer()
-                                ..onTap = () => Navigator.pushReplacementNamed(context, '/signup'),
+                                ..onTap = () => Navigator.pushReplacementNamed(
+                                    context, '/signup'),
                             ),
                           ],
                         ),
                       ),
                     ),
-
                   ],
                 ),
               ),
@@ -373,7 +370,9 @@ class _LoginPageState extends State<LoginPage> {
   }
 }
 
-// ======= Shared policies rich text (opens modal) =======
+
+// ======= WIDGETS HARDCODED IN THIS FILE =======
+
 class PoliciesRichText extends StatelessWidget {
   final Color themeGreen;
   const PoliciesRichText({super.key, required this.themeGreen});
@@ -428,8 +427,6 @@ class PoliciesRichText extends StatelessWidget {
     );
   }
 }
-
-// ======= Policy Dialog (same content you shared) =======
 
 enum PolicyContentType { userAgreement, privacyPolicy }
 

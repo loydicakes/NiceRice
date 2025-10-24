@@ -1,3 +1,5 @@
+// lib/pages/signup/signup.dart
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -21,7 +23,7 @@ class _SignUpPageState extends State<SignUpPage> {
   final _password = TextEditingController();
   final _confirm = TextEditingController();
 
-  bool _acceptedPolicies = false;
+  bool _acceptedPolicies = false; // <-- State for the checkbox
   bool _obscure1 = true;
   bool _obscure2 = true;
   bool _loading = false;
@@ -35,13 +37,12 @@ class _SignUpPageState extends State<SignUpPage> {
         email.contains(".") &&
         _password.text.length >= 6 &&
         _confirm.text == _password.text &&
-        _acceptedPolicies;
+        _acceptedPolicies; // <-- Must be true to sign up
   }
 
   @override
   void initState() {
     super.initState();
-    // prevent cross-page mirroring
     for (final c in [_lastName, _firstName, _email, _password, _confirm]) {
       c.text = '';
       c.addListener(() => setState(() {}));
@@ -56,6 +57,47 @@ class _SignUpPageState extends State<SignUpPage> {
     _password.dispose();
     _confirm.dispose();
     super.dispose();
+  }
+
+  void _showVerificationDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Verify Your Email',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text('A verification email has been sent to:',
+                    style: GoogleFonts.poppins()),
+                const SizedBox(height: 8),
+                Text(_email.text.trim(),
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                Text(
+                  'Please click the link in the email to activate your account. You can log in after verifying.',
+                  style: GoogleFonts.poppins(fontSize: 12),
+                ),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              child: Text('OK',
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.bold,
+                      color: const Color(0xFF2D4F2B))),
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.pushReplacementNamed(context, '/login');
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _submit() async {
@@ -74,19 +116,18 @@ class _SignUpPageState extends State<SignUpPage> {
     });
 
     try {
-      // Firebase Auth
       final cred = await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: _email.text.trim(),
         password: _password.text,
       );
 
       final user = cred.user!;
-      final fullName = "${_firstName.text.trim()} ${_lastName.text.trim()}"
-          .trim();
+      await user.sendEmailVerification();
 
+      final fullName =
+          "${_firstName.text.trim()} ${_lastName.text.trim()}".trim();
       await user.updateDisplayName(fullName);
 
-      // Firestore profile (kept + extended with acceptedPoliciesAt & updatedAt)
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'uid': user.uid,
         'email': _email.text.trim(),
@@ -96,23 +137,18 @@ class _SignUpPageState extends State<SignUpPage> {
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'acceptedPoliciesAt': FieldValue.serverTimestamp(),
+        'isSuspended': false,
       }, SetOptions(merge: true));
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Account created!', style: GoogleFonts.poppins()),
-        ),
-      );
-
-      Navigator.pushNamedAndRemoveUntil(
-        context,
-        '/main',
-        (route) => false,
-        arguments: 0, // Home tab
-      );
+      _showVerificationDialog();
     } on FirebaseAuthException catch (e) {
-      setState(() => _errorText = e.message);
+      if (e.code == 'email-already-in-use') {
+        setState(() =>
+            _errorText = 'This email is already registered. Please sign in.');
+      } else {
+        setState(() => _errorText = 'An error occurred. Please try again.');
+      }
     } catch (_) {
       setState(() => _errorText = 'Something went wrong. Please try again.');
     } finally {
@@ -171,7 +207,6 @@ class _SignUpPageState extends State<SignUpPage> {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo
               Container(
                 height: 120,
                 width: 120,
@@ -183,7 +218,6 @@ class _SignUpPageState extends State<SignUpPage> {
                 ),
               ),
               const SizedBox(height: 12),
-
               Text(
                 "Sign Up",
                 style: GoogleFonts.poppins(
@@ -193,7 +227,6 @@ class _SignUpPageState extends State<SignUpPage> {
                 ),
               ),
               const SizedBox(height: 16),
-
               if (_errorText != null) ...[
                 Text(
                   _errorText!,
@@ -202,10 +235,9 @@ class _SignUpPageState extends State<SignUpPage> {
                 ),
                 const SizedBox(height: 12),
               ],
-
               Form(
                 key: _formKey,
-                autovalidateMode: AutovalidateMode.disabled, // per-field only
+                autovalidateMode: AutovalidateMode.disabled,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -219,7 +251,6 @@ class _SignUpPageState extends State<SignUpPage> {
                           (v == null || v.trim().isEmpty) ? "Required" : null,
                     ),
                     const SizedBox(height: 14),
-
                     TextFormField(
                       controller: _firstName,
                       textCapitalization: TextCapitalization.words,
@@ -230,17 +261,14 @@ class _SignUpPageState extends State<SignUpPage> {
                           (v == null || v.trim().isEmpty) ? "Required" : null,
                     ),
                     const SizedBox(height: 14),
-
                     TextFormField(
                       controller: _email,
                       keyboardType: TextInputType.emailAddress,
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(
                         hint: "Email",
-                        prefix: const Icon(
-                          Icons.email_outlined,
-                          color: borderGrey,
-                        ),
+                        prefix:
+                            const Icon(Icons.email_outlined, color: borderGrey),
                       ),
                       autovalidateMode: AutovalidateMode.onUserInteraction,
                       validator: (v) {
@@ -251,20 +279,19 @@ class _SignUpPageState extends State<SignUpPage> {
                       },
                     ),
                     const SizedBox(height: 14),
-
                     TextFormField(
                       controller: _password,
                       obscureText: _obscure1,
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(
                         hint: "Password",
-                        prefix: const Icon(
-                          Icons.lock_outline,
-                          color: borderGrey,
-                        ),
+                        prefix:
+                            const Icon(Icons.lock_outline, color: borderGrey),
                         suffix: IconButton(
                           icon: Icon(
-                            _obscure1 ? Icons.visibility_off : Icons.visibility,
+                            _obscure1
+                                ? Icons.visibility_off
+                                : Icons.visibility,
                             color: borderGrey,
                           ),
                           onPressed: () =>
@@ -280,20 +307,19 @@ class _SignUpPageState extends State<SignUpPage> {
                       },
                     ),
                     const SizedBox(height: 14),
-
                     TextFormField(
                       controller: _confirm,
                       obscureText: _obscure2,
                       style: GoogleFonts.poppins(),
                       decoration: roundedField(
                         hint: "Confirm password",
-                        prefix: const Icon(
-                          Icons.lock_outline,
-                          color: borderGrey,
-                        ),
+                        prefix:
+                            const Icon(Icons.lock_outline, color: borderGrey),
                         suffix: IconButton(
                           icon: Icon(
-                            _obscure2 ? Icons.visibility_off : Icons.visibility,
+                            _obscure2
+                                ? Icons.visibility_off
+                                : Icons.visibility,
                             color: borderGrey,
                           ),
                           onPressed: () =>
@@ -309,10 +335,7 @@ class _SignUpPageState extends State<SignUpPage> {
                         return null;
                       },
                     ),
-
                     const SizedBox(height: 16),
-
-                    // Policies row (signup: required)
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -330,9 +353,7 @@ class _SignUpPageState extends State<SignUpPage> {
                         ),
                       ],
                     ),
-
                     const SizedBox(height: 18),
-
                     SizedBox(
                       height: 50,
                       child: ElevatedButton(
@@ -344,14 +365,11 @@ class _SignUpPageState extends State<SignUpPage> {
                             borderRadius: BorderRadius.circular(30),
                           ),
                         ),
-                        onPressed: _isFormBasicallyValid && !_loading
-                            ? _submit
-                            : null,
+                        onPressed:
+                            _isFormBasicallyValid && !_loading ? _submit : null,
                         child: _loading
                             ? const CircularProgressIndicator(
-                                color: Colors.white,
-                                strokeWidth: 2,
-                              )
+                                color: Colors.white, strokeWidth: 2)
                             : Row(
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
@@ -363,18 +381,14 @@ class _SignUpPageState extends State<SignUpPage> {
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  const Icon(
-                                    Icons.arrow_forward,
-                                    color: Colors.white,
-                                  ),
+                                  const Icon(Icons.arrow_forward,
+                                      color: Colors.white),
                                 ],
                               ),
                       ),
                     ),
                     const SizedBox(height: 18),
-
                     const SizedBox(height: 16),
-
                     Center(
                       child: RichText(
                         text: TextSpan(
@@ -390,13 +404,13 @@ class _SignUpPageState extends State<SignUpPage> {
                                 fontWeight: FontWeight.w600,
                                 color: themeGreen,
                                 decoration: TextDecoration.underline,
-                                decorationThickness: 1.5, // optional
+                                decorationThickness: 1.5,
                               ),
                               recognizer: TapGestureRecognizer()
                                 ..onTap = () => Navigator.pushReplacementNamed(
-                                  context,
-                                  '/login',
-                                ),
+                                      context,
+                                      '/login',
+                                    ),
                             ),
                           ],
                         ),
@@ -413,7 +427,9 @@ class _SignUpPageState extends State<SignUpPage> {
   }
 }
 
-// ======= Shared components (reuse from login) =======
+
+// ======= WIDGETS HARDCODED IN THIS FILE =======
+
 class PoliciesRichText extends StatelessWidget {
   final Color themeGreen;
   const PoliciesRichText({super.key, required this.themeGreen});

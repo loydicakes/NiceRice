@@ -23,48 +23,60 @@ class AutomationPage extends StatefulWidget {
 
   /// 👉 HomePage publishes the **real** BT connection to these.
   static final ValueNotifier<bool> btConnected = ValueNotifier<bool>(false);
-  static final ValueNotifier<String?> btDeviceName = ValueNotifier<String?>(null);
+  static final ValueNotifier<String?> btDeviceName = ValueNotifier<String?>(
+    null,
+  );
 
   @override
   State<AutomationPage> createState() => _AutomationPageState();
 }
 
 enum InitialBracket {
-  ideal,  // 20-25% (ideal harvest)
-  late,   // 15-19% (late harvest - too dry)
-  early,  // 26-30% (early harvest - too wet)
+  ideal, // 20-25% (ideal harvest)
+  late, // 15-19% (late harvest - too dry)
+  early, // 26-30% (early harvest - too wet)
 }
 
 extension on InitialBracket {
   String title(AppLocalizations t) {
     switch (this) {
-      case InitialBracket.ideal: return "20–25%";
-      case InitialBracket.late:  return "15–19%";
-      case InitialBracket.early: return "26–30%";
+      case InitialBracket.ideal:
+        return "20–25%";
+      case InitialBracket.late:
+        return "15–19%";
+      case InitialBracket.early:
+        return "26–30%";
     }
   }
 
   String description(AppLocalizations t) {
     switch (this) {
-      case InitialBracket.ideal: return t.bracketIdeal;
-      case InitialBracket.late:  return t.bracketLate;
-      case InitialBracket.early: return t.bracketEarly;
+      case InitialBracket.ideal:
+        return t.bracketIdeal;
+      case InitialBracket.late:
+        return t.bracketLate;
+      case InitialBracket.early:
+        return t.bracketEarly;
     }
   }
 
   double get midpoint {
     switch (this) {
-      case InitialBracket.ideal: return (20 + 25) / 2.0;
-      case InitialBracket.late:  return (15 + 19) / 2.0;
-      case InitialBracket.early: return (26 + 30) / 2.0;
+      case InitialBracket.ideal:
+        return (20 + 25) / 2.0;
+      case InitialBracket.late:
+        return (15 + 19) / 2.0;
+      case InitialBracket.early:
+        return (26 + 30) / 2.0;
     }
   }
 }
 
 class _AutomationPageState extends State<AutomationPage>
     with AutomaticKeepAliveClientMixin {
-  static final MethodChannel _bleChannel =
-      const MethodChannel('app.bluetooth/controls');
+  static final MethodChannel _bleChannel = const MethodChannel(
+    'app.bluetooth/controls',
+  );
 
   @override
   bool get wantKeepAlive => true;
@@ -98,8 +110,8 @@ class _AutomationPageState extends State<AutomationPage>
   static const Color _ringSingleColor = Color.fromARGB(255, 63, 252, 88);
 
   // ---------------------- Preheat / Init Gate ----------------------
-  static const double _preheatTempMin = 25.0;
-  static const double _preheatTempMax = 70.0;
+  static const double _preheatTempMin = 38.0;
+  static const double _preheatTempMax = 50.0;
 
   bool _waitingForPreheat = false;
   bool _preheatReady = false;
@@ -126,11 +138,9 @@ class _AutomationPageState extends State<AutomationPage>
 
   void _goToHome() {
     if (!mounted) return;
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      '/main',
-      (route) => false,
-      arguments: 0,
-    );
+    Navigator.of(
+      context,
+    ).pushNamedAndRemoveUntil('/main', (route) => false, arguments: 0);
   }
 
   Future<void> _showBluetoothRequiredDialog() async {
@@ -166,14 +176,20 @@ class _AutomationPageState extends State<AutomationPage>
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: Text(t.cancel, style: GoogleFonts.poppins(color: cs.primary)),
+            child: Text(
+              t.cancel,
+              style: GoogleFonts.poppins(color: cs.primary),
+            ),
           ),
           ElevatedButton(
             onPressed: () {
               Navigator.of(ctx).pop();
               _goToHome();
             },
-            child: Text(t.goToHome, style: GoogleFonts.poppins(color: cs.onPrimary)),
+            child: Text(
+              t.goToHome,
+              style: GoogleFonts.poppins(color: cs.onPrimary),
+            ),
           ),
         ],
       ),
@@ -265,15 +281,15 @@ class _AutomationPageState extends State<AutomationPage>
     final m = d.inMinutes.remainder(60);
     final s = d.inSeconds.remainder(60);
     String two(int n) => n.toString().padLeft(2, "0");
-    return h > 0
-        ? "$h:${two(m)}:${two(s)}"
-        : "${two(m)}:${two(s)}";
+    return h > 0 ? "$h:${two(m)}:${two(s)}" : "${two(m)}:${two(s)}";
   }
 
   double get _progress {
     if (_sessionDuration.inSeconds <= 0) return 0.0;
-    final done = (_sessionDuration.inSeconds - _remaining.inSeconds)
-        .clamp(0, _sessionDuration.inSeconds);
+    final done = (_sessionDuration.inSeconds - _remaining.inSeconds).clamp(
+      0,
+      _sessionDuration.inSeconds,
+    );
     return (done / _sessionDuration.inSeconds).clamp(0.0, 1.0);
   }
 
@@ -457,13 +473,18 @@ class _AutomationPageState extends State<AutomationPage>
         final cs = Theme.of(ctx).colorScheme;
         TextStyle tt(double sz, {FontWeight? w, Color? c}) =>
             GoogleFonts.poppins(
-              fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+              fontSize: sz,
+              fontWeight: w,
+              color: c ?? cs.onSurface,
+            );
 
         return ValueListenableBuilder<bool>(
           valueListenable: readyNotifier,
           builder: (ctx, isReady, _) {
             return Dialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
@@ -479,7 +500,11 @@ class _AutomationPageState extends State<AutomationPage>
                       Text(
                         t.waitForChamber,
                         textAlign: TextAlign.center,
-                        style: tt(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
+                        style: tt(
+                          13,
+                          w: FontWeight.w600,
+                          c: cs.onSurface.withOpacity(0.8),
+                        ),
                       ),
                       const SizedBox(height: 12),
 
@@ -512,7 +537,11 @@ class _AutomationPageState extends State<AutomationPage>
                       const SizedBox(height: 8),
                       Text(
                         t.targetTempRange,
-                        style: tt(12, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.7)),
+                        style: tt(
+                          12,
+                          w: FontWeight.w600,
+                          c: cs.onSurface.withOpacity(0.7),
+                        ),
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -525,21 +554,36 @@ class _AutomationPageState extends State<AutomationPage>
                                 _safeAllStop();
                                 Navigator.pop(ctx);
                               },
-                              child: Text(t.cancel, style: tt(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
+                              child: Text(
+                                t.cancel,
+                                style: tt(
+                                  14,
+                                  w: FontWeight.w700,
+                                  c: Theme.of(ctx).colorScheme.primary,
+                                ),
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ] else ...[
                       const SizedBox(height: 8),
-                      const Icon(Icons.check_circle, size: 44, color: Colors.green),
+                      const Icon(
+                        Icons.check_circle,
+                        size: 44,
+                        color: Colors.green,
+                      ),
                       const SizedBox(height: 16),
                       Text(t.putGrainsNow, style: tt(18, w: FontWeight.w800)),
                       const SizedBox(height: 8),
                       Text(
                         t.chamberReady,
                         textAlign: TextAlign.center,
-                        style: tt(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
+                        style: tt(
+                          13,
+                          w: FontWeight.w600,
+                          c: cs.onSurface.withOpacity(0.8),
+                        ),
                       ),
                       const SizedBox(height: 16),
                       Row(
@@ -552,7 +596,14 @@ class _AutomationPageState extends State<AutomationPage>
                                 _safeAllStop();
                                 Navigator.pop(ctx);
                               },
-                              child: Text(t.cancel, style: tt(14, w: FontWeight.w700, c: Theme.of(ctx).colorScheme.primary)),
+                              child: Text(
+                                t.cancel,
+                                style: tt(
+                                  14,
+                                  w: FontWeight.w700,
+                                  c: Theme.of(ctx).colorScheme.primary,
+                                ),
+                              ),
                             ),
                           ),
                           const SizedBox(width: 10),
@@ -564,7 +615,14 @@ class _AutomationPageState extends State<AutomationPage>
                                 await _sendCommand("ARM:COUNTDOWN");
                                 if (!_isRunning) _beginDrying();
                               },
-                              child: Text(t.startDrying, style: tt(14, w: FontWeight.w700, c: Colors.white)),
+                              child: Text(
+                                t.startDrying,
+                                style: tt(
+                                  14,
+                                  w: FontWeight.w700,
+                                  c: Colors.white,
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -662,7 +720,9 @@ class _AutomationPageState extends State<AutomationPage>
         child: Center(
           child: Card(
             elevation: 6,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               child: Column(
@@ -750,13 +810,19 @@ class _AutomationPageState extends State<AutomationPage>
         child: Center(
           child: Card(
             elevation: 6,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Icon(Icons.check_circle_rounded, size: 48, color: Colors.green),
+                  const Icon(
+                    Icons.check_circle_rounded,
+                    size: 48,
+                    color: Colors.green,
+                  ),
                   const SizedBox(height: 12),
                   Text(
                     t.targetReachedEnded, // localized success message
@@ -835,7 +901,9 @@ class _AutomationPageState extends State<AutomationPage>
             Text(
               t.startNewSessionBody,
               style: GoogleFonts.poppins(
-                  fontSize: 14, color: cs.onSurface.withOpacity(0.85)),
+                fontSize: 14,
+                color: cs.onSurface.withOpacity(0.85),
+              ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -915,8 +983,9 @@ class _AutomationPageState extends State<AutomationPage>
 
             final double cardPad = (16 * scale).clamp(12, 22).toDouble();
             final double tileMinH = (140 * scale).clamp(120, 180).toDouble();
-            final double timerSide =
-                (maxW * (isTablet ? 0.55 : 0.75)).clamp(240, 520).toDouble();
+            final double timerSide = (maxW * (isTablet ? 0.55 : 0.75))
+                .clamp(240, 520)
+                .toDouble();
             final double ringTrack = (8 * scale).clamp(6, 12).toDouble();
             final double ringStroke = (12 * scale).clamp(10, 16).toDouble();
             final double dotSize = (18 * scale).clamp(14, 24).toDouble();
@@ -924,7 +993,10 @@ class _AutomationPageState extends State<AutomationPage>
 
             TextStyle tx(double sz, {FontWeight? w, Color? c}) =>
                 GoogleFonts.poppins(
-                    fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+                  fontSize: sz,
+                  fontWeight: w,
+                  color: c ?? cs.onSurface,
+                );
 
             final ButtonStyle startStyle = ElevatedButton.styleFrom(
               backgroundColor: context.brand,
@@ -938,7 +1010,8 @@ class _AutomationPageState extends State<AutomationPage>
               ),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(100)),
+                borderRadius: BorderRadius.circular(100),
+              ),
             );
 
             final ButtonStyle pauseStyle = ElevatedButton.styleFrom(
@@ -946,11 +1019,13 @@ class _AutomationPageState extends State<AutomationPage>
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
-                  horizontal: (22 * scale).clamp(16, 28).toDouble(),
-                  vertical: (14 * scale).clamp(10, 18).toDouble()),
+                horizontal: (22 * scale).clamp(16, 28).toDouble(),
+                vertical: (14 * scale).clamp(10, 18).toDouble(),
+              ),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(100)),
+                borderRadius: BorderRadius.circular(100),
+              ),
             );
 
             final ButtonStyle playStyle = ElevatedButton.styleFrom(
@@ -958,11 +1033,13 @@ class _AutomationPageState extends State<AutomationPage>
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
-                  horizontal: (22 * scale).clamp(16, 28).toDouble(),
-                  vertical: (14 * scale).clamp(10, 18).toDouble()),
+                horizontal: (22 * scale).clamp(16, 28).toDouble(),
+                vertical: (14 * scale).clamp(10, 18).toDouble(),
+              ),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(100)),
+                borderRadius: BorderRadius.circular(100),
+              ),
             );
 
             final ButtonStyle stopStyle = ElevatedButton.styleFrom(
@@ -970,11 +1047,13 @@ class _AutomationPageState extends State<AutomationPage>
               foregroundColor: Colors.white,
               elevation: 0,
               padding: EdgeInsets.symmetric(
-                  horizontal: (22 * scale).clamp(16, 28).toDouble(),
-                  vertical: (14 * scale).clamp(10, 18).toDouble()),
+                horizontal: (22 * scale).clamp(16, 28).toDouble(),
+                vertical: (14 * scale).clamp(10, 18).toDouble(),
+              ),
               minimumSize: Size(0, (44 * scale).clamp(40, 52).toDouble()),
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(100)),
+                borderRadius: BorderRadius.circular(100),
+              ),
             );
 
             Widget metricRow() {
@@ -1009,12 +1088,21 @@ class _AutomationPageState extends State<AutomationPage>
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(t.targetMoistureContent,
-                      style: tx(16, w: FontWeight.w700, c: context.brand)),
+                  Text(
+                    t.targetMoistureContent,
+                    style: tx(16, w: FontWeight.w700, c: context.brand),
+                  ),
                   SizedBox(height: (10 * scale).clamp(6, 12).toDouble()),
                   Row(
                     children: [
-                      Text("9%", style: tx(12, w: FontWeight.w700, c: cs.onSurface.withOpacity(0.7))),
+                      Text(
+                        "9%",
+                        style: tx(
+                          12,
+                          w: FontWeight.w700,
+                          c: cs.onSurface.withOpacity(0.7),
+                        ),
+                      ),
                       Expanded(
                         child: Slider(
                           value: _targetMc,
@@ -1026,18 +1114,32 @@ class _AutomationPageState extends State<AutomationPage>
                           onChanged: inputsLocked
                               ? null
                               : (v) {
-                                  setState(() =>
-                                      _targetMc = double.parse(v.toStringAsFixed(1)));
+                                  setState(
+                                    () => _targetMc = double.parse(
+                                      v.toStringAsFixed(1),
+                                    ),
+                                  );
                                 },
                         ),
                       ),
-                      Text("14%", style: tx(12, w: FontWeight.w700, c: cs.onSurface.withOpacity(0.7))),
+                      Text(
+                        "14%",
+                        style: tx(
+                          12,
+                          w: FontWeight.w700,
+                          c: cs.onSurface.withOpacity(0.7),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 4),
                   Text(
                     tip,
-                    style: tx(13, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.85)),
+                    style: tx(
+                      13,
+                      w: FontWeight.w600,
+                      c: cs.onSurface.withOpacity(0.85),
+                    ),
                   ),
                 ],
               );
@@ -1052,16 +1154,22 @@ class _AutomationPageState extends State<AutomationPage>
                 return Expanded(
                   child: InkWell(
                     // Disable taps while running or preheating
-                    onTap: inputsLocked ? null : () => setState(() => _selectedBracket = b),
+                    onTap: inputsLocked
+                        ? null
+                        : () => setState(() => _selectedBracket = b),
                     borderRadius: BorderRadius.circular(16),
                     child: Opacity(
                       opacity: inputsLocked ? 0.6 : 1.0,
                       child: Container(
-                        padding: EdgeInsets.all((12 * scale).clamp(10, 18).toDouble()),
+                        padding: EdgeInsets.all(
+                          (12 * scale).clamp(10, 18).toDouble(),
+                        ),
                         decoration: BoxDecoration(
                           color: bg,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: cs.outline.withOpacity(sel ? 0.0 : 1.0)),
+                          border: Border.all(
+                            color: cs.outline.withOpacity(sel ? 0.0 : 1.0),
+                          ),
                         ),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -1069,13 +1177,21 @@ class _AutomationPageState extends State<AutomationPage>
                             Text(
                               b.title(t),
                               textAlign: TextAlign.center,
-                              style: tx((18 * scale).clamp(16, 24).toDouble(), w: FontWeight.w800, c: fg),
+                              style: tx(
+                                (18 * scale).clamp(16, 24).toDouble(),
+                                w: FontWeight.w800,
+                                c: fg,
+                              ),
                             ),
                             const SizedBox(height: 6),
                             Text(
                               b.description(t),
                               textAlign: TextAlign.center,
-                              style: tx((12 * scale).clamp(11, 15).toDouble(), w: FontWeight.w600, c: fg.withOpacity(0.9)),
+                              style: tx(
+                                (12 * scale).clamp(11, 15).toDouble(),
+                                w: FontWeight.w600,
+                                c: fg.withOpacity(0.9),
+                              ),
                             ),
                           ],
                         ),
@@ -1088,8 +1204,10 @@ class _AutomationPageState extends State<AutomationPage>
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(t.initialMoistureContent,
-                      style: tx(16, w: FontWeight.w700, c: context.brand)),
+                  Text(
+                    t.initialMoistureContent,
+                    style: tx(16, w: FontWeight.w700, c: context.brand),
+                  ),
                   SizedBox(height: (10 * scale).clamp(6, 12).toDouble()),
                   Row(
                     children: [
@@ -1132,8 +1250,11 @@ class _AutomationPageState extends State<AutomationPage>
                 ),
                 child: Text(
                   "${t.estimatedTime}: $txt",
-                  style: tx((12 * scale).clamp(11, 15).toDouble(),
-                      w: FontWeight.w700, c: cs.onSecondaryContainer),
+                  style: tx(
+                    (12 * scale).clamp(11, 15).toDouble(),
+                    w: FontWeight.w700,
+                    c: cs.onSecondaryContainer,
+                  ),
                 ),
               );
             }
@@ -1161,15 +1282,25 @@ class _AutomationPageState extends State<AutomationPage>
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text(t.startNewSession,
-                                          style: tx((16 * scale).clamp(14, 20).toDouble(),
-                                              w: FontWeight.w700, c: context.brand)),
+                                      Text(
+                                        t.startNewSession,
+                                        style: tx(
+                                          (16 * scale).clamp(14, 20).toDouble(),
+                                          w: FontWeight.w700,
+                                          c: context.brand,
+                                        ),
+                                      ),
                                       const SizedBox(height: 6),
                                       Text(
                                         "${t.usePreviousSettings}:\n$_prevSettingText",
-                                        style: tx(12, w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
+                                        style: tx(
+                                          12,
+                                          w: FontWeight.w600,
+                                          c: cs.onSurface.withOpacity(0.8),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1180,7 +1311,11 @@ class _AutomationPageState extends State<AutomationPage>
                                   onPressed: _showStartWithPreviousDialog,
                                   child: Text(
                                     t.startSame,
-                                    style: tx(14, w: FontWeight.w700, c: cs.onPrimary),
+                                    style: tx(
+                                      14,
+                                      w: FontWeight.w700,
+                                      c: cs.onPrimary,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -1197,11 +1332,14 @@ class _AutomationPageState extends State<AutomationPage>
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              Text(t.sessionPlan,
-                                  style: tx(
-                                      (16 * scale).clamp(14, 20).toDouble(),
-                                      w: FontWeight.w700,
-                                      c: context.brand)),
+                              Text(
+                                t.sessionPlan,
+                                style: tx(
+                                  (16 * scale).clamp(14, 20).toDouble(),
+                                  w: FontWeight.w700,
+                                  c: context.brand,
+                                ),
+                              ),
                               const SizedBox(height: 10),
 
                               // Slider disabled while running/preheating
@@ -1224,16 +1362,27 @@ class _AutomationPageState extends State<AutomationPage>
                               const SizedBox(height: 14),
                               ElevatedButton(
                                 style: startStyle,
-                                onPressed: (_inputsComplete && !_isRunning && !_waitingForPreheat)
+                                onPressed:
+                                    (_inputsComplete &&
+                                        !_isRunning &&
+                                        !_waitingForPreheat)
                                     ? () async {
-                                        final ok = await _ensureBluetoothReadyOrExplain();
+                                        final ok =
+                                            await _ensureBluetoothReadyOrExplain();
                                         if (!ok) return;
 
                                         await _sendInitToDevice();
                                         await _startPreheatDialog();
                                       }
                                     : null,
-                                child: Text(t.start, style: tx(14, w: FontWeight.w700, c: cs.onPrimary)),
+                                child: Text(
+                                  t.start,
+                                  style: tx(
+                                    14,
+                                    w: FontWeight.w700,
+                                    c: cs.onPrimary,
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -1250,99 +1399,139 @@ class _AutomationPageState extends State<AutomationPage>
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
                                     t.sessionTimer,
-                                    style: tx((16 * scale).clamp(14, 20).toDouble(),
-                                        w: FontWeight.w700, c: context.brand),
+                                    style: tx(
+                                      (16 * scale).clamp(14, 20).toDouble(),
+                                      w: FontWeight.w700,
+                                      c: context.brand,
+                                    ),
                                   ),
                                   Container(
                                     padding: EdgeInsets.symmetric(
-                                      horizontal: (10 * scale).clamp(8, 14).toDouble(),
-                                      vertical: (6 * scale).clamp(4, 10).toDouble(),
+                                      horizontal: (10 * scale)
+                                          .clamp(8, 14)
+                                          .toDouble(),
+                                      vertical: (6 * scale)
+                                          .clamp(4, 10)
+                                          .toDouble(),
                                     ),
                                     decoration: BoxDecoration(
                                       color: _isRunning
                                           ? (_isPaused
-                                              ? Colors.amber.shade100
-                                              : cs.secondaryContainer)
+                                                ? Colors.amber.shade100
+                                                : cs.secondaryContainer)
                                           : cs.surfaceVariant,
                                       borderRadius: BorderRadius.circular(999),
                                     ),
                                     child: Text(
                                       _isRunning
                                           ? (_isPaused ? t.paused : t.running)
-                                          : (_waitingForPreheat ? t.initializing : t.idle),
-                                      style: tx((12 * scale).clamp(11, 15).toDouble(),
-                                          w: FontWeight.w700,
-                                          c: _isRunning
-                                              ? (_isPaused ? Colors.amber.shade900 : cs.onSecondaryContainer)
-                                              : cs.onSurface.withOpacity(0.8)),
+                                          : (_waitingForPreheat
+                                                ? t.initializing
+                                                : t.idle),
+                                      style: tx(
+                                        (12 * scale).clamp(11, 15).toDouble(),
+                                        w: FontWeight.w700,
+                                        c: _isRunning
+                                            ? (_isPaused
+                                                  ? Colors.amber.shade900
+                                                  : cs.onSecondaryContainer)
+                                            : cs.onSurface.withOpacity(0.8),
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 12),
 
-                              LayoutBuilder(builder: (_, __) {
-                                final double side = timerSide;
-                                return SizedBox(
-                                  width: side,
-                                  height: side,
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      CustomPaint(
-                                        size: Size.square(side),
-                                        painter: _TargetRingPainter(
-                                          context: context,
-                                          progress: ringProgress,
-                                          track: ringTrack,
-                                          stroke: ringStroke,
-                                          color: _ringSingleColor,
+                              LayoutBuilder(
+                                builder: (_, __) {
+                                  final double side = timerSide;
+                                  return SizedBox(
+                                    width: side,
+                                    height: side,
+                                    child: Stack(
+                                      alignment: Alignment.center,
+                                      children: [
+                                        CustomPaint(
+                                          size: Size.square(side),
+                                          painter: _TargetRingPainter(
+                                            context: context,
+                                            progress: ringProgress,
+                                            track: ringTrack,
+                                            stroke: ringStroke,
+                                            color: _ringSingleColor,
+                                          ),
                                         ),
-                                      ),
-                                      Transform.rotate(
-                                        angle: 2 * math.pi * ringProgress,
-                                        child: Align(
-                                          alignment: Alignment.topCenter,
-                                          child: Container(
-                                            width: dotSize,
-                                            height: dotSize,
-                                            decoration: BoxDecoration(
-                                              color: dotColor,
-                                              shape: BoxShape.circle,
-                                              boxShadow: [
-                                                BoxShadow(
-                                                  color: dotColor.withOpacity(0.45),
-                                                  blurRadius: (10 * scale).clamp(6, 14).toDouble(),
-                                                  spreadRadius: (2 * scale).clamp(1, 3).toDouble(),
-                                                ),
-                                              ],
+                                        Transform.rotate(
+                                          angle: 2 * math.pi * ringProgress,
+                                          child: Align(
+                                            alignment: Alignment.topCenter,
+                                            child: Container(
+                                              width: dotSize,
+                                              height: dotSize,
+                                              decoration: BoxDecoration(
+                                                color: dotColor,
+                                                shape: BoxShape.circle,
+                                                boxShadow: [
+                                                  BoxShadow(
+                                                    color: dotColor.withOpacity(
+                                                      0.45,
+                                                    ),
+                                                    blurRadius: (10 * scale)
+                                                        .clamp(6, 14)
+                                                        .toDouble(),
+                                                    spreadRadius: (2 * scale)
+                                                        .clamp(1, 3)
+                                                        .toDouble(),
+                                                  ),
+                                                ],
+                                              ),
                                             ),
                                           ),
                                         ),
-                                      ),
-                                      Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Text(_fmtDuration(_remaining),
-                                              style: tx(bigText, w: FontWeight.w800)),
-                                          SizedBox(height: (6 * scale).clamp(4, 10).toDouble()),
-                                          Text(
-                                            "${t.toTarget(_targetMc.toStringAsFixed(1))}",
-                                            style: tx((14 * scale).clamp(12, 18).toDouble(),
-                                                w: FontWeight.w600, c: cs.onSurface.withOpacity(0.8)),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              }),
+                                        Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              _fmtDuration(_remaining),
+                                              style: tx(
+                                                bigText,
+                                                w: FontWeight.w800,
+                                              ),
+                                            ),
+                                            SizedBox(
+                                              height: (6 * scale)
+                                                  .clamp(4, 10)
+                                                  .toDouble(),
+                                            ),
+                                            Text(
+                                              "${t.toTarget(_targetMc.toStringAsFixed(1))}",
+                                              style: tx(
+                                                (14 * scale)
+                                                    .clamp(12, 18)
+                                                    .toDouble(),
+                                                w: FontWeight.w600,
+                                                c: cs.onSurface.withOpacity(
+                                                  0.8,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
 
-                              SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
+                              SizedBox(
+                                height: (16 * scale).clamp(12, 22).toDouble(),
+                              ),
                               Row(
                                 children: [
                                   Expanded(
@@ -1357,69 +1546,117 @@ class _AutomationPageState extends State<AutomationPage>
                                               }
                                             }
                                           : null,
-                                      child: Text(_isPaused ? t.play : t.pause,
-                                          style: tx(14, w: FontWeight.w700, c: Colors.white)),
+                                      child: Text(
+                                        _isPaused ? t.play : t.pause,
+                                        style: tx(
+                                          14,
+                                          w: FontWeight.w700,
+                                          c: Colors.white,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 10),
                                   Expanded(
                                     child: ElevatedButton(
                                       style: stopStyle,
-                                      onPressed: _isRunning || _waitingForPreheat || _isPaused
+                                      onPressed:
+                                          _isRunning ||
+                                              _waitingForPreheat ||
+                                              _isPaused
                                           ? () async {
-                                              final cs = Theme.of(context).colorScheme;
+                                              final cs = Theme.of(
+                                                context,
+                                              ).colorScheme;
                                               await showDialog(
                                                 context: context,
                                                 builder: (ctx) => AlertDialog(
                                                   shape: RoundedRectangleBorder(
-                                                    borderRadius: BorderRadius.circular(16),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                          16,
+                                                        ),
                                                   ),
-                                                  title: Text(t.stopSession,
-                                                      style: GoogleFonts.poppins(
-                                                          fontSize: 18,
-                                                          fontWeight: FontWeight.w700,
-                                                          color: cs.onSurface)),
+                                                  title: Text(
+                                                    t.stopSession,
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 18,
+                                                      fontWeight:
+                                                          FontWeight.w700,
+                                                      color: cs.onSurface,
+                                                    ),
+                                                  ),
                                                   content: Text(
-                                                      t.stopSessionBody,
-                                                      style: GoogleFonts.poppins(
-                                                          fontSize: 14,
-                                                          color: cs.onSurface.withOpacity(0.85))),
+                                                    t.stopSessionBody,
+                                                    style: GoogleFonts.poppins(
+                                                      fontSize: 14,
+                                                      color: cs.onSurface
+                                                          .withOpacity(0.85),
+                                                    ),
+                                                  ),
                                                   actions: [
                                                     TextButton(
-                                                      onPressed: () => Navigator.pop(ctx),
-                                                      child: Text(t.cancel,
-                                                          style: GoogleFonts.poppins(
+                                                      onPressed: () =>
+                                                          Navigator.pop(ctx),
+                                                      child: Text(
+                                                        t.cancel,
+                                                        style:
+                                                            GoogleFonts.poppins(
                                                               fontSize: 14,
-                                                              fontWeight: FontWeight.w600,
-                                                              color: context.brand)),
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w600,
+                                                              color:
+                                                                  context.brand,
+                                                            ),
+                                                      ),
                                                     ),
                                                     ElevatedButton(
                                                       onPressed: () {
                                                         Navigator.pop(ctx);
                                                         if (_waitingForPreheat) {
-                                                          _waitingForPreheat = false;
+                                                          _waitingForPreheat =
+                                                              false;
                                                           _preheatReady = false;
                                                         }
-                                                        _sendCommand("MOVE_SERVOS_TO_STOP_POSITION");
+                                                        _sendCommand(
+                                                          "MOVE_SERVOS_TO_STOP_POSITION",
+                                                        );
                                                         _finishSession(); // manual stop saves + popup
                                                       },
-                                                      child: Text(t.confirm,
-                                                          style: GoogleFonts.poppins(
+                                                      child: Text(
+                                                        t.confirm,
+                                                        style:
+                                                            GoogleFonts.poppins(
                                                               fontSize: 14,
-                                                              fontWeight: FontWeight.w700,
-                                                              color: cs.onPrimary)),
+                                                              fontWeight:
+                                                                  FontWeight
+                                                                      .w700,
+                                                              color:
+                                                                  cs.onPrimary,
+                                                            ),
+                                                      ),
                                                     ),
                                                   ],
                                                 ),
                                               );
                                             }
                                           : null,
-                                      child: Text(t.stop, style: tx(14, w: FontWeight.w700, c: Colors.white)),
+                                      child: Text(
+                                        t.stop,
+                                        style: tx(
+                                          14,
+                                          w: FontWeight.w700,
+                                          c: Colors.white,
+                                        ),
+                                      ),
                                     ),
                                   ),
                                 ],
                               ),
-                              SizedBox(height: (16 * scale).clamp(12, 22).toDouble()),
+                              SizedBox(
+                                height: (16 * scale).clamp(12, 22).toDouble(),
+                              ),
                               metricRow(),
                             ],
                           ),
@@ -1454,23 +1691,25 @@ class _AutomationPageState extends State<AutomationPage>
         bg: cs.surfaceVariant,
         border: cs.outline,
         icon: icon,
-        textBuilder: ({
-          double? size,
-          FontWeight? weight,
-          Color color = const Color(0x00000000),
-          double? height,
-          TextDecoration? deco,
-        }) {
-          final effective =
-              color == const Color(0x00000000) ? cs.onSurface : color;
-          return GoogleFonts.poppins(
-            fontSize: size,
-            fontWeight: weight,
-            color: effective,
-            height: height,
-            decoration: deco,
-          );
-        },
+        textBuilder:
+            ({
+              double? size,
+              FontWeight? weight,
+              Color color = const Color(0x00000000),
+              double? height,
+              TextDecoration? deco,
+            }) {
+              final effective = color == const Color(0x00000000)
+                  ? cs.onSurface
+                  : color;
+              return GoogleFonts.poppins(
+                fontSize: size,
+                fontWeight: weight,
+                color: effective,
+                height: height,
+                decoration: deco,
+              );
+            },
       ),
     );
   }
@@ -1488,7 +1727,8 @@ class _MetricBox extends StatelessWidget {
     Color color,
     double? height,
     TextDecoration? deco,
-  }) textBuilder;
+  })
+  textBuilder;
 
   const _MetricBox({
     required this.label,
@@ -1515,7 +1755,11 @@ class _MetricBox extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: cs.primary, size: (18 * scale).clamp(16, 22).toDouble()),
+          Icon(
+            icon,
+            color: cs.primary,
+            size: (18 * scale).clamp(16, 22).toDouble(),
+          ),
           SizedBox(height: (6 * scale).clamp(4, 10).toDouble()),
           FittedBox(
             fit: BoxFit.scaleDown,

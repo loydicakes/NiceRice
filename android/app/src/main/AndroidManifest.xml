@@ -28,7 +28,7 @@
         android:maxSdkVersion="30" />
 
     <application
-        android:label="nice_rice"
+        android:label="Nice Rice"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 

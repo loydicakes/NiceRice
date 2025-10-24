@@ -210,4 +210,25 @@
   "tooltip_renameSession": "Palitan ang pangalan",
   "analytics_renameSaved": "Na-update ang pangalan ng session.",
   "analytics_renameFailed": "Hindi na-save ang pangalan sa database. Itatago muna namin ito nang lokal sa device na ito."
+
+  "analytics_estimatedGrainMoisture": "Tinatayang Moisture ng Butil",
+  "analytics_interpretationBody": "Ipinapakita ng linya kung paano bumababa ang moisture ng butil habang nagpapatuyo. Kapag naabot na nito ang target na antas, tapos na ang pagpapatuyo.",
+  "analytics_startMc": "Simulang MC",
+  "analytics_targetMc": "Target na MC",
+  "analytics_moistureLoss": "Bawas sa Moisture",
+  "analytics_summary": "Buod",
+  "analytics_summaryPoint1": "Bumaba ang moisture content mula {from}% hanggang {to}% sa loob ng {duration}.",
+  "@analytics_summaryPoint1": {
+    "placeholders": {
+      "from": {"type": "String"},
+      "to": {"type": "String"},
+      "duration": {"type": "String"}
+    }
+  },
+  "analytics_summaryPoint2": "Ang bawas sa moisture sa session na ito ay {loss}%.",
+  "@analytics_summaryPoint2": {
+    "placeholders": {
+      "loss": {"type": "String"}
+    }
+  }
 }

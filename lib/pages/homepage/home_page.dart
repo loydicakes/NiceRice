@@ -1,4 +1,3 @@
-// lib/pages/homepage/home_page.dart
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -9,7 +8,6 @@ import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart';
 import 'package:nice_rice/pages/automation/automation.dart';
 
-// ⬇️ Use the generated localizations
 import 'package:nice_rice/l10n/app_localizations.dart';
 
 class HomePage extends StatefulWidget {
@@ -23,29 +21,23 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   @override
   bool get wantKeepAlive => true;
 
-  // Timers
   Timer? _sensorTimer;
   Timer? _clockTimer;
 
-  // ✅ Connection watchdog
   Timer? _connWatchTimer;
   DateTime? _lastBleRxAt;
   static const Duration _disconnectGrace = Duration(seconds: 10);
   static const Duration _connWatchTick = Duration(seconds: 2);
 
-  // Live sensor values (DHT)
   double _tempC = 0;
   double _humidity = 0;
 
-  // Storage status
-  String _storageStatus = ""; // intentionally blank for now
+  String _storageStatus = "";
 
-  // Platform channel (no plugins, no gradle changes)
   static const MethodChannel _bleChannel = MethodChannel('app.bluetooth/controls');
 
   bool _isConnecting = false;
 
-  // Track connection state so we can flip the button to "Disconnect"
   bool _isConnected = false;
   String? _connectedName;
   String? _connectedAddr;
@@ -54,10 +46,8 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
   void initState() {
     super.initState();
 
-    // Register Bluetooth data handler
     _bleChannel.setMethodCallHandler(_handleBluetoothData);
 
-    // Start watchdog
     _connWatchTimer = Timer.periodic(_connWatchTick, (_) {
       if (!_isConnected) return;
       final last = _lastBleRxAt;
@@ -68,14 +58,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       }
     });
 
-    // Poll environment sensor every 3s
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted || !_isConnected) return;
       _sendCommand("GET_DHT2");
       _sendCommand("GET_STATUS");
     });
 
-    // Tick clock (for the header date/time)
     _clockTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
@@ -89,7 +77,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     super.dispose();
   }
 
-  // Formatting helpers
   String _formatDate(DateTime dt) {
     const months = [
       'January','February','March','April','May','June',
@@ -121,7 +108,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25).toDouble();
 
-  // ─── BLE: send + parse ─────────────────────────────────────────────────────
   Future<void> _sendCommand(String command) async {
     try {
       final response = await _bleChannel.invokeMethod<String>('sendData', {'data': command});
@@ -150,7 +136,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       _isConnected = false;
       _connectedName = null;
       _connectedAddr = null;
-      // Reset storage chamber data
       _tempC = 0;
       _humidity = 0;
       _storageStatus = "";
@@ -183,8 +168,8 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         }
        if (h != null && t != null) {
         setState(() {
-          _humidity = h!; // Add !
-          _tempC = t!;    // Add !
+          _humidity = h!; 
+          _tempC = t!;    
         });
       }
         continue;
@@ -200,7 +185,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     }
   }
 
-  // ─── Connect + device picker (Android only) ────────────────────────────────
   Future<void> _onConnectPressed() async {
     final t = AppLocalizations.of(context)!;
 
@@ -342,7 +326,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
         _isConnected = false;
         _connectedName = null;
         _connectedAddr = null;
-        // Reset storage chamber data
         _tempC = 0;
         _humidity = 0;
         _storageStatus = "";
@@ -447,7 +430,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      // ── Header card ──────────────────────────────────────
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -504,7 +486,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                               ),
                                               const SizedBox(height: 10),
 
-                                              // CONNECT / DISCONNECT BUTTON
                                               Align(
                                                 alignment: Alignment.centerLeft,
                                                 child: ConstrainedBox(
@@ -607,7 +588,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                         ),
                       ),
 
-                      // ── Drying Chamber progress (conditionally shown) ──
                       ValueListenableBuilder<bool>(
                         valueListenable: AutomationPage.isActive,
                         builder: (_, active, __) {
@@ -666,7 +646,6 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
                       const SizedBox(height: 14),
 
-                      // ── Storage Chamber (4 tiles) ────────────────────────
                       Card(
                         child: Padding(
                           padding: const EdgeInsets.all(16),
@@ -829,19 +808,18 @@ class _MiniStatusTile extends StatelessWidget {
       builder: (context, c) {
         final shortest = c.biggest.shortestSide;
         final double iconSize  = (shortest * 0.18).clamp(16, 28).toDouble();
-        // ✅ THIS LINE IS NOW THE SAME AS THE OTHER TILE
         final double valueSize = (shortest * 0.32).clamp(22, 52).toDouble();
         final double labelSize = (shortest * 0.14).clamp(11, 20).toDouble();
 
         Color statusColor;
         if (statusText.toLowerCase().contains("at_risk")) {
-          statusColor = const Color(0xFFD93025); // red
+          statusColor = const Color(0xFFD93025);
         } else if (statusText.toLowerCase().contains("warning")) {
-          statusColor = const Color(0xFFF9A825); // yellow
+          statusColor = const Color(0xFFF9A825);
         } else if (statusText.toLowerCase().contains("safe")) {
-          statusColor = const Color(0xFF1DB954); // green
+          statusColor = const Color(0xFF1DB954);
         } else {
-          statusColor = cs.onSurface; // default gray
+          statusColor = cs.onSurface;
         }
 
         return Container(

@@ -8,7 +8,6 @@ allprojects {
 subprojects {
     project.evaluationDependsOn(":app")
 
-    // ✅ Add this block here:
     afterEvaluate {
         android {
             compileOptions {

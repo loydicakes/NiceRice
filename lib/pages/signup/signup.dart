@@ -1,12 +1,9 @@
-// lib/pages/signup/signup.dart
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/gestures.dart';
 
-// ======= Sign Up Page =======
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
 
@@ -23,7 +20,7 @@ class _SignUpPageState extends State<SignUpPage> {
   final _password = TextEditingController();
   final _confirm = TextEditingController();
 
-  bool _acceptedPolicies = false; // <-- State for the checkbox
+  bool _acceptedPolicies = false;
   bool _obscure1 = true;
   bool _obscure2 = true;
   bool _loading = false;
@@ -37,7 +34,7 @@ class _SignUpPageState extends State<SignUpPage> {
         email.contains(".") &&
         _password.text.length >= 6 &&
         _confirm.text == _password.text &&
-        _acceptedPolicies; // <-- Must be true to sign up
+        _acceptedPolicies; 
   }
 
   @override
@@ -427,8 +424,6 @@ class _SignUpPageState extends State<SignUpPage> {
   }
 }
 
-
-// ======= WIDGETS HARDCODED IN THIS FILE =======
 
 class PoliciesRichText extends StatelessWidget {
   final Color themeGreen;

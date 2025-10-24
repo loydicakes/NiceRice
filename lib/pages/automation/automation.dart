@@ -1,4 +1,3 @@
-// lib/pages/automation/automation.dart
 import 'dart:async';
 import 'dart:math';
 import 'dart:math' as math show pi;
@@ -8,20 +7,17 @@ import 'package:fluttertoast/fluttertoast.dart';
 import 'package:flutter/services.dart';
 
 import 'package:nice_rice/header.dart';
-import 'package:nice_rice/theme_controller.dart'; // ThemeScope + context.brand
+import 'package:nice_rice/theme_controller.dart';
 import 'package:nice_rice/data/operation_history.dart';
 
-// ⬇️ Localizations
 import 'package:nice_rice/l10n/app_localizations.dart';
 
 class AutomationPage extends StatefulWidget {
   const AutomationPage({super.key});
 
-  /// Exposed notifiers (read by HomePage to mirror Drying Chamber progress)
   static final ValueNotifier<bool> isActive = ValueNotifier<bool>(false);
   static final ValueNotifier<double> progress = ValueNotifier<double>(0.0);
 
-  /// 👉 HomePage publishes the **real** BT connection to these.
   static final ValueNotifier<bool> btConnected = ValueNotifier<bool>(false);
   static final ValueNotifier<String?> btDeviceName = ValueNotifier<String?>(
     null,
@@ -100,11 +96,10 @@ class _AutomationPageState extends State<AutomationPage>
   double _targetMc = 14.0;
   InitialBracket? _selectedBracket;
 
-  // Remember previous settings for “start same” dialog
   double? _prevTargetMc;
   InitialBracket? _prevBracket;
 
-  static const double _rateMcPerMin = 0.5; // % lost per minute
+  static const double _rateMcPerMin = 0.27;
   double? _initialMcForSession;
 
   static const Color _ringSingleColor = Color.fromARGB(255, 63, 252, 88);
@@ -163,14 +158,6 @@ class _AutomationPageState extends State<AutomationPage>
           children: [
             Text(t.connectToHomeBody, style: GoogleFonts.poppins()),
             const SizedBox(height: 8),
-            // 🔕 Removed per request: secondary translation line
-            // Text(
-            //   t.connectToHomeBodyAlt,
-            //   style: GoogleFonts.poppins(
-            //     fontSize: 12,
-            //     color: cs.onSurface.withOpacity(0.75),
-            //   ),
-            // ),
           ],
         ),
         actions: [
@@ -196,7 +183,6 @@ class _AutomationPageState extends State<AutomationPage>
     );
   }
 
-  /// 1) Ensure BT is ON  2) Check AutomationPage.btConnected
   Future<bool> _ensureBluetoothReadyOrExplain() async {
     final on = await _invokeBle<bool>('ensureBluetoothOn');
     final btOn = on ?? _assumeBtOnIfUnknown;
@@ -211,14 +197,12 @@ class _AutomationPageState extends State<AutomationPage>
 
   // ---------- NEW: unified reaction when BT disconnects ----------
   void _handleSessionStopOnDisconnect() {
-    // Stop any preheat & running timers, persist if needed, and notify.
     if (_waitingForPreheat) {
       _waitingForPreheat = false;
       _preheatReady = false;
     }
     if (_isRunning || _isPaused) {
-      // This will cancel ticker, persist history, and show "Session saved"
-      _finishSession(); // manual stop path
+      _finishSession();
       final t = AppLocalizations.of(context)!;
       Fluttertoast.showToast(msg: t.deviceDisconnected);
     }
@@ -230,7 +214,6 @@ class _AutomationPageState extends State<AutomationPage>
   void initState() {
     super.initState();
 
-    // 🔔 Listen for BT connection state changes published by HomePage
     _btConnListener = () {
       if (!AutomationPage.btConnected.value) {
         _handleSessionStopOnDisconnect();
@@ -240,7 +223,6 @@ class _AutomationPageState extends State<AutomationPage>
 
     _bleChannel.setMethodCallHandler(_handleBluetoothData);
 
-    // Poll environment sensor every 3s
     _sensorTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       if (!mounted) return;
       _sendCommand("GET_DHT");
@@ -252,7 +234,6 @@ class _AutomationPageState extends State<AutomationPage>
     _ticker?.cancel();
     _sensorTimer?.cancel();
 
-    // remove BT listener
     AutomationPage.btConnected.removeListener(_btConnListener);
 
     AutomationPage.isActive.value = false;
@@ -262,10 +243,10 @@ class _AutomationPageState extends State<AutomationPage>
       final id = _currentOpId!;
       _currentOpId = null;
       OperationHistory.instance.logReading(id, _humidity);
-      OperationHistory.instance.endOperation(id); // ignore: discarded_futures
-      _safeAllStop(); // ignore: discarded_futures
+      OperationHistory.instance.endOperation(id); 
+      _safeAllStop(); 
     } else {
-      _safeAllStop(); // ignore: discarded_futures
+      _safeAllStop(); 
     }
 
     super.dispose();
@@ -368,7 +349,6 @@ class _AutomationPageState extends State<AutomationPage>
         }
       }
     }
-    // NEW: handle explicit native disconnect callback (mirrors HomePage)
     else if (call.method == "onDisconnected") {
       _handleSessionStopOnDisconnect();
     }
@@ -665,7 +645,6 @@ class _AutomationPageState extends State<AutomationPage>
       return;
     }
 
-    // remember settings for next time
     _prevBracket = _selectedBracket;
     _prevTargetMc = _targetMc;
 
@@ -705,7 +684,6 @@ class _AutomationPageState extends State<AutomationPage>
     Fluttertoast.showToast(msg: t.dryingStarted);
   }
 
-  // NEW: tap-to-dismiss "Session saved" popup
   Future<void> _showSessionSavedPopup() async {
     if (!mounted) return;
     final cs = Theme.of(context).colorScheme;
@@ -771,7 +749,6 @@ class _AutomationPageState extends State<AutomationPage>
     AutomationPage.isActive.value = false;
     AutomationPage.progress.value = 0.0;
 
-    // ✅ Always persist when a session ends (completed or stopped)
     if (_currentOpId != null) {
       final id = _currentOpId!;
       _currentOpId = null;
@@ -780,21 +757,17 @@ class _AutomationPageState extends State<AutomationPage>
       await OperationHistory.instance.endOperation(id);
       await _safeAllStop();
     } else {
-      // Nothing to persist (e.g., stopped during preheat)
       await _safeAllStop();
     }
 
-    // If it auto-completed to target, show the existing "Drying done" popup first.
     if (auto) {
       Fluttertoast.showToast(msg: t.targetReachedEnded);
       await _showDryingDonePopup();
     }
 
-    // ✅ Then always show "Session saved" popup (tap-to-dismiss).
     await _showSessionSavedPopup();
   }
 
-  // ⬇️ Tap-to-dismiss "Drying is done" popup
   Future<void> _showDryingDonePopup() async {
     if (!mounted) return;
     final cs = Theme.of(context).colorScheme;
@@ -825,7 +798,7 @@ class _AutomationPageState extends State<AutomationPage>
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    t.targetReachedEnded, // localized success message
+                    t.targetReachedEnded, 
                     textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(
                       fontSize: 18,
@@ -835,7 +808,7 @@ class _AutomationPageState extends State<AutomationPage>
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    t.startNewSessionBody, // small helper text (reuses existing string)
+                    t.startNewSessionBody,
                     textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(
                       fontSize: 13,
@@ -843,17 +816,6 @@ class _AutomationPageState extends State<AutomationPage>
                       color: cs.onSurface.withOpacity(0.75),
                     ),
                   ),
-                  // Optional hint – remove if you don't have this key
-                  // const SizedBox(height: 10),
-                  // Text(
-                  //   "(${t.tapToDismiss})",
-                  //   textAlign: TextAlign.center,
-                  //   style: GoogleFonts.poppins(
-                  //     fontSize: 11,
-                  //     fontWeight: FontWeight.w600,
-                  //     color: cs.onSurface.withOpacity(0.6),
-                  //   ),
-                  // ),
                 ],
               ),
             ),
@@ -964,7 +926,6 @@ class _AutomationPageState extends State<AutomationPage>
     final cs = Theme.of(context).colorScheme;
     final t = AppLocalizations.of(context)!;
 
-    // Lock inputs when session running or preheat in progress
     final bool inputsLocked = _isRunning || _waitingForPreheat;
 
     return Scaffold(
@@ -1110,7 +1071,6 @@ class _AutomationPageState extends State<AutomationPage>
                           max: 14.0,
                           divisions: 10,
                           label: "${_targetMc.toStringAsFixed(1)}%",
-                          // Disabled while running or preheating
                           onChanged: inputsLocked
                               ? null
                               : (v) {
@@ -1153,7 +1113,6 @@ class _AutomationPageState extends State<AutomationPage>
 
                 return Expanded(
                   child: InkWell(
-                    // Disable taps while running or preheating
                     onTap: inputsLocked
                         ? null
                         : () => setState(() => _selectedBracket = b),
@@ -1270,7 +1229,6 @@ class _AutomationPageState extends State<AutomationPage>
                   padding: const EdgeInsets.all(16),
                   child: Column(
                     children: [
-                      // ───────── Restart-with-previous banner ─────────
                       if (_prevBracket != null &&
                           _prevTargetMc != null &&
                           !_isRunning &&
@@ -1342,7 +1300,6 @@ class _AutomationPageState extends State<AutomationPage>
                               ),
                               const SizedBox(height: 10),
 
-                              // Slider disabled while running/preheating
                               AnimatedOpacity(
                                 duration: const Duration(milliseconds: 200),
                                 opacity: inputsLocked ? 0.6 : 1.0,
@@ -1350,7 +1307,6 @@ class _AutomationPageState extends State<AutomationPage>
                               ),
                               const SizedBox(height: 14),
 
-                              // Bracket buttons disabled while running/preheating
                               AnimatedOpacity(
                                 duration: const Duration(milliseconds: 200),
                                 opacity: inputsLocked ? 0.6 : 1.0,
@@ -1622,7 +1578,7 @@ class _AutomationPageState extends State<AutomationPage>
                                                         _sendCommand(
                                                           "MOVE_SERVOS_TO_STOP_POSITION",
                                                         );
-                                                        _finishSession(); // manual stop saves + popup
+                                                        _finishSession();
                                                       },
                                                       child: Text(
                                                         t.confirm,
@@ -1673,7 +1629,7 @@ class _AutomationPageState extends State<AutomationPage>
     );
   }
 
-  // ------- Metric card wrapper -------
+  //------- Metric card wrapper -------
   Widget _metricCard({
     required double minHeight,
     required double pad,

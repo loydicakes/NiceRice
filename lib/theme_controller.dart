@@ -1,10 +1,7 @@
-// lib/theme_controller.dart
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart'; // for CupertinoPageTransitionsBuilder
+import 'package:flutter/cupertino.dart'; 
 
-/// ─────────────────────────────────────────────────────────────────────────
-/// 1) Simple global controller + scope
-/// ─────────────────────────────────────────────────────────────────────────
+
 class ThemeController extends ChangeNotifier {
   ThemeMode _mode = ThemeMode.light;
   ThemeMode get mode => _mode;
@@ -19,7 +16,6 @@ class ThemeController extends ChangeNotifier {
   }
 }
 
-/// Inherited wrapper so any widget can read/update the theme without prop-drilling.
 class ThemeScope extends InheritedNotifier<ThemeController> {
   const ThemeScope({
     super.key,
@@ -34,26 +30,19 @@ class ThemeScope extends InheritedNotifier<ThemeController> {
   }
 }
 
-/// ─────────────────────────────────────────────────────────────────────────
-/// 2) Brand tokens (from your HomePage constants)
-/// ─────────────────────────────────────────────────────────────────────────
+
 class Brand {
-  // Light
   static const Color bgGrey = Color(0xFFF5F5F5);
   static const Color darkGreen = Color(0xFF2F6F4F);
   static const Color tileBorder = Color(0xFF7C7C7C);
   static const Color progressBgLight = Color(0xFFE5EBE6);
 
-  // Dark (tuned for contrast + depth)
   static const Color darkBg = Color(0xFF0E1311);
   static const Color darkSurface = Color(0xFF1A201D);
   static const Color darkTileBorder = Color(0xFF404A45);
   static const Color progressBgDark = Color(0xFF243329);
 }
 
-/// ─────────────────────────────────────────────────────────────────────────
-/// 3) App themes (Material 3), incl. page transitions
-/// ─────────────────────────────────────────────────────────────────────────
 class AppThemes {
   static ThemeData light() {
     return ThemeData(
@@ -62,12 +51,11 @@ class AppThemes {
         seedColor: Brand.darkGreen,
         brightness: Brightness.light,
       ).copyWith(
-        // map tokens to semantic roles you’ll reuse across widgets
         background: Brand.bgGrey,
         surface: Colors.white,
-        surfaceVariant: Brand.bgGrey,           // for tile backgrounds
-        outline: Brand.tileBorder,              // for tile borders
-        tertiaryContainer: Brand.progressBgLight, // for progress tracks
+        surfaceVariant: Brand.bgGrey,
+        outline: Brand.tileBorder,              
+        tertiaryContainer: Brand.progressBgLight, 
       ),
       pageTransitionsTheme: const PageTransitionsTheme(
         builders: {
@@ -99,7 +87,7 @@ class AppThemes {
         ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
-        color: Brand.darkGreen,           // LinearProgressIndicator value color
+        color: Brand.darkGreen,
         linearTrackColor: Brand.progressBgLight,
       ),
     );
@@ -114,7 +102,7 @@ class AppThemes {
       ).copyWith(
         background: Brand.darkBg,
         surface: Brand.darkSurface,
-        surfaceVariant: const Color(0xFF141A17), // darker tile fill
+        surfaceVariant: const Color(0xFF141A17),
         outline: Brand.darkTileBorder,
         tertiaryContainer: Brand.progressBgDark,
       ),
@@ -155,26 +143,17 @@ class AppThemes {
   }
 }
 
-/// ─────────────────────────────────────────────────────────────────────────
-/// 4) Convenience extensions for clean UI code
-///    (so you can write context.brand, context.tileFill, etc.)
-/// ─────────────────────────────────────────────────────────────────────────
 extension NiceColors on BuildContext {
   ColorScheme get cs => Theme.of(this).colorScheme;
 
-  /// Brand accent (your darkGreen)
   Color get brand => cs.primary;
 
-  /// Tile background (bgGrey in light, dark fill in dark)
   Color get tileFill => cs.surfaceVariant;
 
-  /// Tile/card border color
   Color get tileStroke => cs.outline;
 
-  /// LinearProgressIndicator track background
   Color get progressTrack => cs.tertiaryContainer;
 
-  /// App bar/system bar background (matches scaffold)
   Color get appBarBg =>
       Theme.of(this).appBarTheme.backgroundColor ??
       Theme.of(this).scaffoldBackgroundColor;

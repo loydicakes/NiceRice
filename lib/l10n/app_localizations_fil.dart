@@ -179,11 +179,10 @@ class AppLocalizationsFil extends AppLocalizations {
 
   @override
   String get waitForChamber =>
-      'Maghintay hanggang umabot sa 45–70°C ang chamber';
+      'Maghintay hanggang umabot sa 38–41°C ang chamber';
 
   @override
-  String get targetTempRange =>
-      'Target: temperatura sa pagitan ng 45°C at 70°C';
+  String get targetTempRange => 'Target: temperatura sa pagitan ng 38–41°C';
 
   @override
   String get putGrainsNow => 'Pwede mo nang ilagay ang palay';

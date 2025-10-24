@@ -1,22 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- ===== Device capability ===== -->
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="false" />
 
-    <!-- ===== Android 12+ (SDK 31+) Bluetooth runtime permissions ===== -->
     <uses-permission
         android:name="android.permission.BLUETOOTH_SCAN"
         android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
-    <!-- If you plan to advertise later:
-    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-    -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- ===== Legacy (SDK <= 30) BLE + location permissions ===== -->
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
@@ -57,7 +51,6 @@
             android:value="2" />
     </application>
 
-    <!-- Package visibility (kept) -->
     <queries>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT" />

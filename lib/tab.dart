@@ -1,19 +1,13 @@
-// lib/tab.dart
-// Responsive glass pill bottom navigation with dark-mode support
-// and safe spacing so it never overlaps page content.
-
 import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-// Your pages
 import 'package:nice_rice/pages/homepage/home_page.dart';
 import 'package:nice_rice/pages/automation/automation.dart';
 import 'package:nice_rice/pages/analytics/analytics.dart';
 
 class AppShell extends StatefulWidget {
-  /// 0 = Home, 1 = Automation, 2 = Analytics (if signed-in)
   final int initialIndex;
   const AppShell({super.key, this.initialIndex = 0});
 
@@ -22,7 +16,6 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  // Base pill sizing (actual usable height is adapted at runtime)
   static const double _pillBaseHeight = 64;
   static const double _hMargin = 16;
   static const double _bottomGap = 12;
@@ -84,11 +77,9 @@ class _AppShellState extends State<AppShell> {
     final mq = MediaQuery.of(context);
     final safeBottom = mq.padding.bottom;
 
-    // Grow the pill slightly for large accessibility text
-    final textScale = mq.textScaler.scale(1.0); // 1.0..N
+    final textScale = mq.textScaler.scale(1.0); 
     final pillHeight = _pillBaseHeight + (textScale - 1.0) * 10.0;
 
-    // Reserve space so pages never get under the pill
     final reservedBottom = pillHeight + _bottomGap + safeBottom + 8;
 
     return StreamBuilder<User?>(
@@ -97,7 +88,6 @@ class _AppShellState extends State<AppShell> {
       builder: (_, snap) {
         _user = snap.data;
 
-        // Keep a valid index when auth state changes
         if (_index >= _pages.length) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _jumpTo(_pages.length - 1);
@@ -109,7 +99,6 @@ class _AppShellState extends State<AppShell> {
           backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           body: Stack(
             children: [
-              // Pages (with bottom padding so pill never overlaps)
               Padding(
                 padding: EdgeInsets.only(bottom: reservedBottom),
                 child: PageView(
@@ -120,7 +109,6 @@ class _AppShellState extends State<AppShell> {
                 ),
               ),
 
-              // Floating glass pill nav
               Positioned(
                 left: _hMargin,
                 right: _hMargin,
@@ -140,8 +128,6 @@ class _AppShellState extends State<AppShell> {
   }
 }
 
-// -------------------- Bottom Nav --------------------
-
 class _GlassNavBar extends StatelessWidget {
   const _GlassNavBar({
     required this.height,
@@ -160,7 +146,6 @@ class _GlassNavBar extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // Match your Canva style: green selected, muted gray unselected
     final selectedColor = isDark
         ? const Color(0xFF77C08A)
         : const Color(0xFF2E6B3A);
@@ -173,7 +158,6 @@ class _GlassNavBar extends StatelessWidget {
         const _NavItemData(icon: Icons.analytics_rounded, label: 'Analytics'),
     ];
 
-    // Cap internal text scale so labels don’t overflow
     final outer = MediaQuery.of(context).textScaler;
     final capped = TextScaler.linear(outer.scale(1).clamp(1.0, 1.2));
 
@@ -185,12 +169,11 @@ class _GlassNavBar extends StatelessWidget {
           borderRadius: BorderRadius.circular(24),
           child: Stack(
             children: [
-              // Background blur
+
               BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
                 child: SizedBox(height: height),
               ),
-              // Translucent surface + subtle border/shadow
               Container(
                 height: height,
                 decoration: BoxDecoration(
@@ -262,14 +245,11 @@ class _NavItem extends StatelessWidget {
       borderRadius: BorderRadius.circular(16),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          // Compute safe internal layout from real available height
           final totalH = constraints.maxHeight;
 
-          // Derive everything from the remaining vertical space so it can never overflow
           final padV = (totalH * 0.16).clamp(6.0, 12.0);
           final usableH = (totalH - padV * 2).clamp(30.0, 200.0);
 
-          // Share space among icon / gap / label
           final labelH = (usableH * 0.30).clamp(12.0, 18.0);
           final gap = (usableH * 0.08).clamp(4.0, 8.0);
           final iconSize = (usableH - labelH - gap).clamp(18.0, 36.0);

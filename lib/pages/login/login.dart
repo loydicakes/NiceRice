@@ -1,12 +1,9 @@
-// lib/pages/login/login.dart
-
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/gestures.dart';
 
-// ======= Login Page =======
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -286,8 +283,8 @@ class _LoginPageState extends State<LoginPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Checkbox(
-                          value: true,      // <-- Always checked
-                          onChanged: null,  // <-- Disabled
+                          value: true,
+                          onChanged: null,  
                           activeColor: themeGreen,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(4),

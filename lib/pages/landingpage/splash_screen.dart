@@ -1,4 +1,3 @@
-// lib/pages/landingpage/splash_screen.dart
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
@@ -6,7 +5,7 @@ import 'package:video_player/video_player.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'package:nice_rice/pages/landingpage/landing_page.dart';
-import 'package:nice_rice/tab.dart'; // for AppShell (/main)
+import 'package:nice_rice/tab.dart'; 
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -31,7 +30,6 @@ class _SplashScreenState extends State<SplashScreen> {
       _initVideo();
     });
 
-    // Hard timeout: skip if not ready fast enough
     _skipTimer = Timer(const Duration(milliseconds: 1200), () {
       if (!_initSucceeded) _decideNextPage();
     });
@@ -78,16 +76,13 @@ class _SplashScreenState extends State<SplashScreen> {
     }
   }
 
-  /// ✅ Auth gate logic: decides where to go next.
   Future<void> _decideNextPage() async {
-    // Prevent multiple calls
     if (!mounted) return;
     _skipTimer?.cancel();
 
     final user = FirebaseAuth.instance.currentUser;
 
     if (user != null) {
-      // Already signed in → go straight to main app
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) =>
@@ -98,7 +93,6 @@ class _SplashScreenState extends State<SplashScreen> {
         ),
       );
     } else {
-      // Not signed in → go to landing page
       Navigator.of(context).pushReplacement(
         PageRouteBuilder(
           pageBuilder: (context, animation, secondaryAnimation) =>

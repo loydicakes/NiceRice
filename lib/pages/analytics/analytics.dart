@@ -13,18 +13,16 @@ import 'package:nice_rice/data/operation_history.dart';
 import 'package:nice_rice/header.dart';
 import 'package:nice_rice/theme_controller.dart';
 
-// PDF & Printing Imports
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
-// Localizations
 import 'package:nice_rice/l10n/app_localizations.dart';
 
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
-const double _kRateMcPerMin = 0.5; // same as Automation page (can tune later)
+const double _kRateMcPerMin = 0.27; 
 
 // -----------------------------------------------------------------------------
 // Top‑level helpers (shared by UI + PDF)
@@ -44,9 +42,7 @@ String fmtHMS(Duration d) =>
     '${d.inMinutes.remainder(60).toString().padLeft(2, '0')}m '
     '${d.inSeconds.remainder(60).toString().padLeft(2, '0')}s';
 
-// -----------------------------------------------------------------------------
-// Analytics Page
-// -----------------------------------------------------------------------------
+
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
 
@@ -120,7 +116,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25);
 
-  // ---------- TITLE helpers ----------
   String? _getTitleFromOp(OperationRecord op) {
     String? _pull(dynamic obj, String key) {
       try {
@@ -306,7 +301,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return false;
   }
 
-  // ---------- Filter helpers ----------
   List<OperationRecord> _applyFilter(List<OperationRecord> all) {
     final now = DateTime.now();
 
@@ -408,7 +402,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
-  // ---------- Extractors ----------
   double? _extractTargetMc(OperationRecord op) {
     double? _tryNumField(String name) {
       try {
@@ -522,7 +515,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return null;
   }
 
-  // ---------- Export PDF ----------
   void _openExportSheet({
     required BuildContext context,
     required OperationRecord? current,
@@ -623,7 +615,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
-  // ---------- NEW/REVISED PDF GENERATION LOGIC ----------
   Future<void> _generatePdf(BuildContext context, List<OperationRecord> sessions) async {
     final t = AppLocalizations.of(context)!;
     final doc = pw.Document();
@@ -743,7 +734,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     pw.Widget bullet(String label, String value) {
       return pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-        // FIXED: Using a hyphen instead of a special character
         pw.SizedBox(width: 8, child: pw.Text('- ')),
         pw.Expanded(
           child: pw.RichText(
@@ -775,7 +765,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         pw.SizedBox(height: 10),
         pw.Text('Summary', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
         pw.SizedBox(height: 4),
-        // FIXED: Using a hyphen instead of pw.Bullet
         pw.Text('- Moisture content decreased from ${initialMc.toStringAsFixed(1)}% to ${targetMc.toStringAsFixed(1)}% within ${fmtHMS(dur)}.'),
         pw.SizedBox(height: 2),
         pw.Text('- The moisture loss in this session is ${loss.toStringAsFixed(1)}%.'),
@@ -865,9 +854,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Build
-  // ---------------------------------------------------------------------------
   @override
   Widget build(BuildContext context) {
     final themeScope = ThemeScope.of(context);
@@ -983,7 +969,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
                           const SizedBox(height: 14),
 
-                          // ── NEW: Estimated Grain Moisture chart ──
                           _SectionCard(
                             title: 'Estimated grain moisture',
                             titleStyle: txt(size: (16 * scale).clamp(14, 20), w: FontWeight.w700, c: context.brand),
@@ -1000,7 +985,6 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
                           const SizedBox(height: 12),
 
-                          // ── NEW: Interpretation for estimated MC ──
                           _EstimatedMcInterpretationCard(op: selected, titleSize: (16 * scale).clamp(14, 20), bulletGap: (4 * scale).clamp(3, 8)),
                           
                           const SizedBox(height: 12),
@@ -1268,24 +1252,20 @@ class _EstimatedMoistureChart extends StatelessWidget {
     final targetMc = state?._extractTargetMc(op!) ?? 14.0;
     double? initialMc = state?._extractInitialMc(op!);
 
-    // Derive a duration for the x‑axis
     Duration dur = op!.duration ?? Duration.zero;
     if (dur == Duration.zero && op!.readings.length >= 2) {
       dur = op!.readings.last.t.difference(op!.readings.first.t);
     }
     if (dur == Duration.zero) {
-      // fallback: compute from rate if initial is available
       final mins = (initialMc != null) ? ((initialMc - targetMc).clamp(0, 999.0) / _kRateMcPerMin) : 30.0;
       dur = Duration(minutes: mins.ceil());
     }
 
-    // If initial not recorded, estimate from target + time • rate
     if (initialMc == null) {
       final mins = max(1, dur.inMinutes);
       initialMc = targetMc + mins * _kRateMcPerMin;
     }
 
-    // Build two points: start at 0s = initial, end at dur = target
     final spots = <FlSpot>[
       FlSpot(0, initialMc),
       FlSpot(max(1, dur.inSeconds).toDouble(), targetMc),
@@ -1328,7 +1308,7 @@ class _EstimatedMoistureChart extends StatelessWidget {
 }
 
 // -----------------------------------------------------------------------------
-// NEW: Interpretation card for estimated MC
+//Interpretation card for estimated MC
 // -----------------------------------------------------------------------------
 class _EstimatedMcInterpretationCard extends StatelessWidget {
   final OperationRecord? op;
@@ -1354,10 +1334,9 @@ class _EstimatedMcInterpretationCard extends StatelessWidget {
     final targetMc = state?._extractTargetMc(op!) ?? 14.0;
     final initialMc = state?._extractInitialMc(op!) ?? (targetMc + max(1, (op!.duration ?? const Duration(minutes: 30)).inMinutes) * _kRateMcPerMin);
 
-    // Use actual duration when available
     final dur = op!.duration ?? (op!.readings.length >= 2 ? op!.readings.last.t.difference(op!.readings.first.t) : const Duration(minutes: 30));
 
-    final predictedFinal = targetMc; // by design: we drive to target
+    final predictedFinal = targetMc;
     final loss = (initialMc - predictedFinal).clamp(0, 999).toDouble();
 
     List<Widget> bullet(String label, String value) => [
@@ -1411,7 +1390,6 @@ class _SessionSummaryCard extends StatelessWidget {
     final dur = op.duration;
     final durText = (dur == null) ? '—' : fmtHMS(dur);
 
-    // Changed title to "Drying Speed" to match screenshot
     return _SectionCard(
       title: "Drying Speed",
       titleStyle: ts(titleSize, w: FontWeight.w700, c: context.brand),

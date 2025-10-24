@@ -91,7 +91,7 @@
   "targetTempRange": "Target: temperature between 45°C and 70°C",
   "putGrainsNow": "You may now put your grains",
   "chamberReady": "Chamber is ready.",
-  "startDrying": "Start Drying",
+  "startDrying": "Start",
 
   "sessionAlreadyRunning": "A session is already running.",
   "unableToComputeEta": "Unable to compute estimated time.",

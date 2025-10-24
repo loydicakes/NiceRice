@@ -12,7 +12,7 @@ class LandingPage extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            // 🔼 Top curved green bg + logo (unchanged)
+            // 
             Stack(
               clipBehavior: Clip.none,
               children: [
@@ -20,7 +20,7 @@ class LandingPage extends StatelessWidget {
                   height: MediaQuery.of(context).size.height * 0.35,
                   width: double.infinity,
                   decoration: const BoxDecoration(
-                    color: Color(0xFF2d4f2b), // dark green
+                    color: Color(0xFF2d4f2b), 
                     borderRadius: BorderRadius.only(
                       bottomLeft: Radius.circular(100),
                       bottomRight: Radius.circular(100),
@@ -35,7 +35,7 @@ class LandingPage extends StatelessWidget {
                   ),
                 ),
                 Positioned(
-                  bottom: -40, // overlap
+                  bottom: -40, 
                   left: 0,
                   right: 0,
                   child: Center(
@@ -72,7 +72,6 @@ class LandingPage extends StatelessWidget {
               ],
             ),
 
-            // 🔼 Middle brand image + tagline (unchanged)
             Column(
               children: [
                 SizedBox(
@@ -102,7 +101,6 @@ class LandingPage extends StatelessWidget {
               ],
             ),
 
-            // 🔽 Bottom buttons (replacing swipe area)
             Padding(
               padding: const EdgeInsets.only(bottom: 50.0, left: 24, right: 24),
               child: Column(
@@ -110,7 +108,6 @@ class LandingPage extends StatelessWidget {
                 children: [
                   ElevatedButton(
                     onPressed: () {
-                      // Guest → straight to AppShell (Home tab)
                       Navigator.pushReplacementNamed(context, '/main');
                     },
                     style: ElevatedButton.styleFrom(

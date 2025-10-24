@@ -8,9 +8,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:nice_rice/data/operation_models.dart';
 
-/// Handles persistent storage for operation history.
-/// - When user is logged in: uses Firestore.
-/// - When offline/logged out: uses SharedPreferences (local JSON).
 class OperationPersistence {
   static const _kLocalKey = 'operations';
 
@@ -18,7 +15,6 @@ class OperationPersistence {
   static bool _didAttachLoginSync = false;
   static bool _didRunLoginSync = false;
 
-  // 🔹 Save a finished operation.
   static Future<void> save(OperationRecord op) async {
     final user = FirebaseAuth.instance.currentUser;
     debugPrint('PERSIST save: user=${user?.uid} opId=${op.id}');
@@ -41,7 +37,7 @@ class OperationPersistence {
       final data = op.toMap()
         ..addAll({
           '_createdAt': FieldValue.serverTimestamp(),
-          '_source': 'app', // marker for debugging
+          '_source': 'app', 
         });
 
       await ref.set(data, SetOptions(merge: true));
@@ -61,7 +57,6 @@ class OperationPersistence {
           ? <Map<String, dynamic>>[]
           : List<Map<String, dynamic>>.from(jsonDecode(raw) as List);
 
-      // upsert by id
       final idx = list.indexWhere((m) => m['id'] == op.id);
       final map = op.toMap();
       if (idx >= 0) {

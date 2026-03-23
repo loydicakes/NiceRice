@@ -389,7 +389,7 @@ class _ProfilePanelState extends State<_ProfilePanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            t?.language ?? 'Language',
+            t.language ?? 'Language',
             style: GoogleFonts.poppins(
               fontSize: 12.5,
               fontWeight: FontWeight.w600,
@@ -402,8 +402,8 @@ class _ProfilePanelState extends State<_ProfilePanel> {
             runSpacing: 8,
             children: [
               chip('System', null),
-              chip(t?.languageEnglish ?? 'English', 'en'),
-              chip(t?.languageFilipino ?? 'Filipino', 'fil'),
+              chip(t.languageEnglish ?? 'English', 'en'),
+              chip(t.languageFilipino ?? 'Filipino', 'fil'),
             ],
           ),
         ],

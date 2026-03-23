@@ -45,7 +45,7 @@ class BootstrapApp extends StatelessWidget {
         return MaterialApp(
           debugShowCheckedModeBanner: false,
 
-          onGenerateTitle: (ctx) => AppLocalizations.of(ctx)?.appTitle ?? 'NiceRice',
+          onGenerateTitle: (ctx) => AppLocalizations.of(ctx).appTitle ?? 'NiceRice',
 
           theme: AppThemes.light(),
           darkTheme: AppThemes.dark(),

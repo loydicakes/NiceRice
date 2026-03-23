@@ -15,6 +15,14 @@ class OperationHistory extends ChangeNotifier implements OperationRepository {
   StreamSubscription<List<OperationRecord>>? _cloudSub;
   StreamSubscription<User?>? _authSub;
 
+  Future<void> setCustomTitle(String id, String newTitle) async {
+    final op = getById(id);
+    if (op == null) return;
+    op.customTitle = newTitle.trim();
+    await OperationPersistence.save(op);
+    notifyListeners();
+  }
+
   Future<void> ensureLoaded() async {
     if (_loaded) return;
 
@@ -60,14 +68,15 @@ class OperationHistory extends ChangeNotifier implements OperationRepository {
     final op = getById(opId);
     if (op == null) return null;
     op.endedAt ??= DateTime.now();
-    await OperationPersistence.save(op);  
+    await OperationPersistence.save(op);
     notifyListeners();
     return op;
   }
 
   @override
-  UnmodifiableListView<OperationRecord> get operations =>
-      UnmodifiableListView(_ops..sort((a, b) => b.startedAt.compareTo(a.startedAt)));
+  UnmodifiableListView<OperationRecord> get operations => UnmodifiableListView(
+    _ops..sort((a, b) => b.startedAt.compareTo(a.startedAt)),
+  );
 
   @override
   OperationRecord? getById(String id) {

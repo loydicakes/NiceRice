@@ -17,11 +17,13 @@ class OperationRecord {
   final DateTime startedAt;
   DateTime? endedAt;
   final List<MoistureReading> readings;
+  String? customTitle;
 
   OperationRecord({
     required this.id,
     required this.startedAt,
     List<MoistureReading>? readings,
+    this.customTitle,
   }) : readings = readings ?? [];
 
   Duration? get duration => endedAt == null ? null : endedAt!.difference(startedAt);
@@ -40,6 +42,7 @@ class OperationRecord {
     'startedAt': startedAt.toIso8601String(),
     'endedAt': endedAt?.toIso8601String(),
     'readings': readings.map((r) => r.toMap()).toList(),
+    'customTitle': customTitle, 
   };
 
   factory OperationRecord.fromMap(Map<String, dynamic> m) => OperationRecord(
@@ -48,6 +51,7 @@ class OperationRecord {
     readings: (m['readings'] as List)
         .map((e) => MoistureReading.fromMap(Map<String, dynamic>.from(e as Map)))
         .toList(),
+    customTitle: m['customTitle'] as String?,
   )..endedAt = (m['endedAt'] != null ? DateTime.parse(m['endedAt'] as String) : null);
 }
 

@@ -22,7 +22,7 @@ import 'package:nice_rice/l10n/app_localizations.dart';
 // -----------------------------------------------------------------------------
 // Constants
 // -----------------------------------------------------------------------------
-const double _kRateMcPerMin = 0.27; 
+const double _kRateMcPerMin = 0.27;
 
 // -----------------------------------------------------------------------------
 // Top‑level helpers (shared by UI + PDF)
@@ -41,7 +41,6 @@ String fmtHMS(Duration d) =>
     '${d.inHours > 0 ? '${d.inHours}h ' : ''}'
     '${d.inMinutes.remainder(60).toString().padLeft(2, '0')}m '
     '${d.inSeconds.remainder(60).toString().padLeft(2, '0')}s';
-
 
 class AnalyticsPage extends StatefulWidget {
   const AnalyticsPage({super.key});
@@ -114,55 +113,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     await p.setString(_kPrefsTitles, json.encode(_customTitles));
   }
 
-  double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25);
+  // FIX 1: added .toDouble() so return type is actually double, not num
+  double _scaleForWidth(double width) =>
+      (width / 375).clamp(0.85, 1.25).toDouble();
 
-  String? _getTitleFromOp(OperationRecord op) {
-    String? _pull(dynamic obj, String key) {
-      try {
-        final v = (obj as dynamic).toJson?.call()?[key];
-        if (v is String && v.trim().isNotEmpty) return v.trim();
-      } catch (_) {}
-      try {
-        final v = (obj as dynamic).$key as String?;
-        if (v != null && v.trim().isNotEmpty) return v.trim();
-      } catch (_) {}
-      return null;
-    }
-
-    for (final k in ['customTitle', 'title', 'name', 'sessionName', 'label']) {
-      final got = _pull(op, k);
-      if (got != null) return got;
-    }
-
-    Map<String, dynamic>? _meta(dynamic obj) {
-      final tryKeys = ['meta', 'metadata', 'extras', 'extra'];
-      for (final k in tryKeys) {
-        try {
-          final m = (obj as dynamic).toJson?.call()?[k];
-          if (m is Map) {
-            return m.map((kk, vv) => MapEntry(kk.toString(), vv));
-          }
-        } catch (_) {}
-        try {
-          final m = (obj as dynamic).$k;
-          if (m is Map) {
-            return m.map((kk, vv) => MapEntry(kk.toString(), vv));
-          }
-        } catch (_) {}
-      }
-      return null;
-    }
-
-    final m = _meta(op);
-    if (m != null) {
-      for (final k in ['customTitle', 'title', 'name', 'sessionName', 'label']) {
-        final v = m[k];
-        if (v is String && v.trim().isNotEmpty) return v.trim();
-      }
-    }
-
-    return null;
-  }
+  // FIX 2: simplified to read the real field; removed all dead orphaned code
+  // that was previously floating outside any method body
+  String? _getTitleFromOp(OperationRecord op) => op.customTitle;
 
   String _titleFor(OperationRecord op) {
     final fromOp = _getTitleFromOp(op);
@@ -172,133 +129,15 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return op.displayTitle;
   }
 
+  // FIX 3: replaced the broken dynamic-probing block with a direct call
   Future<bool> _persistTitleToRepo(OperationRecord op, String newTitle) async {
-    final anyRepo = repo as dynamic;
-
-    final candidates = [
-      'setCustomTitle',
-      'updateTitle',
-      'renameOperation',
-      'rename',
-      'updateOperationTitle',
-    ];
-    for (final method in candidates) {
-      try {
-        final fn = anyRepo?.$method;
-        if (fn != null) {
-          final result = await fn.call(op.id, newTitle);
-          if (result == true || result == null) return true;
-        }
-      } catch (_) {}
-    }
-
-    Map<String, dynamic> _metaOf(OperationRecord op) {
-      try {
-        final tj = (op as dynamic).toJson?.call();
-        if (tj is Map) {
-          for (final k in ['meta', 'metadata', 'extras', 'extra']) {
-            final m = tj[k];
-            if (m is Map) {
-              return m.map((kk, vv) => MapEntry(kk.toString(), vv));
-            }
-          }
-        }
-      } catch (_) {}
-      return <String, dynamic>{};
-    }
-
-    final meta = _metaOf(op);
-    meta['customTitle'] = newTitle;
-
-    final updateMapCandidates = [
-      (String method) async {
-        try {
-          final fn = anyRepo?.$method;
-          if (fn != null) {
-            final res = await fn.call(op.id, {
-              'meta': meta,
-              'customTitle': newTitle,
-              'title': newTitle,
-            });
-            if (res == true || res == null) return true;
-          }
-        } catch (_) {}
-        return false;
-      },
-      (String method) async {
-        try {
-          final fn = anyRepo?.$method;
-          if (fn != null) {
-            final res = await fn.call({
-              'id': op.id,
-              'meta': meta,
-              'customTitle': newTitle,
-              'title': newTitle,
-            });
-            if (res == true || res == null) return true;
-          }
-        } catch (_) {}
-        return false;
-      },
-    ];
-
-    for (final tryCall in updateMapCandidates) {
-      for (final method in [
-        'updateOperation',
-        'patchOperation',
-        'saveOperation',
-        'upsertOperation',
-        'replaceOperation'
-      ]) {
-        if (await tryCall(method) == true) return true;
-      }
-    }
-
     try {
-      dynamic updatedOp = op;
-      try {
-        final copyWith = (op as dynamic).copyWith;
-        if (copyWith != null) {
-          try {
-            updatedOp = copyWith(
-              meta: {...meta},
-              title: newTitle,
-              customTitle: newTitle,
-            );
-          } catch (_) {
-            try {
-              updatedOp = copyWith(meta: {...meta}, title: newTitle);
-            } catch (_) {
-              try {
-                updatedOp = copyWith(meta: {...meta});
-              } catch (_) {}
-            }
-          }
-        }
-      } catch (_) {}
-
-      try {
-        (updatedOp as dynamic).meta = {...meta};
-      } catch (_) {}
-      try {
-        (updatedOp as dynamic).title = newTitle;
-      } catch (_) {}
-      try {
-        (updatedOp as dynamic).customTitle = newTitle;
-      } catch (_) {}
-
-      for (final method in ['replace', 'upsert', 'save', 'put']) {
-        try {
-          final fn = anyRepo?.$method;
-          if (fn != null) {
-            final res = await fn.call(updatedOp);
-            if (res == true || res == null) return true;
-          }
-        } catch (_) {}
-      }
-    } catch (_) {}
-
-    return false;
+      await repo.setCustomTitle(op.id, newTitle);
+      return true;
+    } catch (e) {
+      debugPrint('❌ Failed to persist title: $e');
+      return false;
+    }
   }
 
   List<OperationRecord> _applyFilter(List<OperationRecord> all) {
@@ -345,9 +184,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final fallback = ops.first;
     return (_selectedOpId == null)
         ? fallback
-        : (ops.firstWhere((o) => o.id == _selectedOpId, orElse: () => fallback));
+        : (ops.firstWhere(
+            (o) => o.id == _selectedOpId,
+            orElse: () => fallback,
+          ));
   }
-
 
   Future<void> _promptRename(OperationRecord? current) async {
     if (current == null) return;
@@ -355,7 +196,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final t = AppLocalizations.of(context)!;
     final controller = TextEditingController(text: _titleFor(current));
 
-    Future<void> _performRename() async {
+    Future<void> performRename() async {
       final txt = controller.text.trim();
       if (txt.isEmpty) return;
       setState(() => _customTitles[current.id] = txt);
@@ -363,7 +204,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       final ok = await _persistTitleToRepo(current, txt);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(ok ? t.analytics_renameSaved : t.analytics_renameFailed)),
+        SnackBar(
+          content: Text(
+            ok ? t.analytics_renameSaved : t.analytics_renameFailed,
+          ),
+        ),
       );
       if (mounted) setState(() {});
     }
@@ -372,7 +217,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: Text(t.analytics_renameSession, style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+        title: Text(
+          t.analytics_renameSession,
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w700),
+        ),
         content: TextField(
           controller: controller,
           autofocus: true,
@@ -381,21 +229,33 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             border: const OutlineInputBorder(),
           ),
           onSubmitted: (_) async {
-            await _performRename();
+            await performRename();
             if (ctx.mounted) Navigator.pop(ctx);
           },
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: Text(t.common_cancel, style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: context.brand)),
+            child: Text(
+              t.common_cancel,
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w600,
+                color: context.brand,
+              ),
+            ),
           ),
           FilledButton(
             onPressed: () async {
-              await _performRename();
+              await performRename();
               if (ctx.mounted) Navigator.pop(ctx);
             },
-            child: Text(t.common_save, style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: cs.onPrimary)),
+            child: Text(
+              t.common_save,
+              style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w700,
+                color: cs.onPrimary,
+              ),
+            ),
           ),
         ],
       ),
@@ -403,7 +263,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   double? _extractTargetMc(OperationRecord op) {
-    double? _tryNumField(String name) {
+    double? tryNumField(String name) {
       try {
         final dyn = op as dynamic;
         final v = dyn.toJson?.call()?[name];
@@ -413,19 +273,34 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
         final dyn = op as dynamic;
         if (name == 'targetMc') return (dyn as dynamic).targetMc as double?;
         if (name == 'target') return (dyn as dynamic).target as double?;
-        if (name == 'targetMoisture') return (dyn as dynamic).targetMoisture as double?;
-        if (name == 'targetMoistureContent') return (dyn as dynamic).targetMoistureContent as double?;
+        if (name == 'targetMoisture')
+          return (dyn as dynamic).targetMoisture as double?;
+        if (name == 'targetMoistureContent')
+          return (dyn as dynamic).targetMoistureContent as double?;
         if (name == 'target_mc') return (dyn as dynamic).target_mc as double?;
       } catch (_) {}
       return null;
     }
-    for (final key in ['targetMc', 'target', 'targetMoisture', 'targetMoistureContent', 'target_mc']) {
-      final got = _tryNumField(key);
+
+    for (final key in [
+      'targetMc',
+      'target',
+      'targetMoisture',
+      'targetMoistureContent',
+      'target_mc',
+    ]) {
+      final got = tryNumField(key);
       if (got != null) return got;
     }
 
-    double? _fromMap(Map m) {
-      for (final key in ['targetMc', 'target_mc', 'target', 'targetMoisture', 'targetMoistureContent']) {
+    double? fromMap(Map m) {
+      for (final key in [
+        'targetMc',
+        'target_mc',
+        'target',
+        'targetMoisture',
+        'targetMoistureContent',
+      ]) {
         final v = m[key];
         if (v is num) return v.toDouble();
         if (v is String) {
@@ -436,7 +311,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       return null;
     }
 
-    Map<String, dynamic>? _getMap(dynamic maybe) {
+    Map<String, dynamic>? getMap(dynamic maybe) {
       if (maybe is Map) return maybe.map((k, v) => MapEntry(k.toString(), v));
       return null;
     }
@@ -445,13 +320,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       final dyn = op as dynamic;
       for (final key in ['meta', 'metadata', 'extras', 'extra']) {
         try {
-          final m = _getMap((dyn as dynamic).toJson?.call()?[key]);
-          final got = (m == null) ? null : _fromMap(m);
+          final m = getMap((dyn as dynamic).toJson?.call()?[key]);
+          final got = (m == null) ? null : fromMap(m);
           if (got != null) return got;
         } catch (_) {}
         try {
-          final m = _getMap((dyn as dynamic).meta);
-          final got = (m == null) ? null : _fromMap(m);
+          final m = getMap((dyn as dynamic).meta);
+          final got = (m == null) ? null : fromMap(m);
           if (got != null) return got;
         } catch (_) {}
       }
@@ -461,7 +336,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
   }
 
   double? _extractInitialMc(OperationRecord op) {
-    double? _tryNumField(String name) {
+    double? tryNumField(String name) {
       try {
         final dyn = op as dynamic;
         final v = dyn.toJson?.call()?[name];
@@ -470,17 +345,19 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       try {
         final dyn = op as dynamic;
         if (name == 'initialMc') return (dyn as dynamic).initialMc as double?;
-        if (name == 'initialMoisture') return (dyn as dynamic).initialMoisture as double?;
+        if (name == 'initialMoisture')
+          return (dyn as dynamic).initialMoisture as double?;
         if (name == 'initial') return (dyn as dynamic).initial as double?;
       } catch (_) {}
       return null;
     }
+
     for (final key in ['initialMc', 'initialMoisture', 'initial']) {
-      final got = _tryNumField(key);
+      final got = tryNumField(key);
       if (got != null) return got;
     }
 
-    double? _fromMap(Map m) {
+    double? fromMap(Map m) {
       for (final key in ['initialMc', 'initial_moisture', 'initial']) {
         final v = m[key];
         if (v is num) return v.toDouble();
@@ -492,7 +369,7 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       return null;
     }
 
-    Map<String, dynamic>? _getMap(dynamic maybe) {
+    Map<String, dynamic>? getMap(dynamic maybe) {
       if (maybe is Map) return maybe.map((k, v) => MapEntry(k.toString(), v));
       return null;
     }
@@ -501,13 +378,13 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       final dyn = op as dynamic;
       for (final key in ['meta', 'metadata', 'extras', 'extra']) {
         try {
-          final m = _getMap((dyn as dynamic).toJson?.call()?[key]);
-          final got = (m == null) ? null : _fromMap(m);
+          final m = getMap((dyn as dynamic).toJson?.call()?[key]);
+          final got = (m == null) ? null : fromMap(m);
           if (got != null) return got;
         } catch (_) {}
         try {
-          final m = _getMap((dyn as dynamic).meta);
-          final got = (m == null) ? null : _fromMap(m);
+          final m = getMap((dyn as dynamic).meta);
+          final got = (m == null) ? null : fromMap(m);
           if (got != null) return got;
         } catch (_) {}
       }
@@ -542,9 +419,18 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(t.analytics_exportAnalyticsPdf, style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w700)),
+                  Text(
+                    t.analytics_exportAnalyticsPdf,
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                   const SizedBox(height: 6),
-                  Text(t.analytics_chooseSessions, style: GoogleFonts.poppins(fontSize: 13)),
+                  Text(
+                    t.analytics_chooseSessions,
+                    style: GoogleFonts.poppins(fontSize: 13),
+                  ),
                   const SizedBox(height: 12),
                   RadioListTile<bool>(
                     value: false,
@@ -572,7 +458,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           return CheckboxListTile(
                             dense: true,
                             value: checked,
-                            title: Text(_titleFor(op), overflow: TextOverflow.ellipsis),
+                            title: Text(
+                              _titleFor(op),
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             onChanged: (v) {
                               setSt(() {
                                 if (v == true) {
@@ -590,15 +479,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                   const SizedBox(height: 12),
                   Row(
                     children: [
-                      TextButton(onPressed: () => Navigator.pop(ctx), child: Text(t.common_cancel)),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: Text(t.common_cancel),
+                      ),
                       const Spacer(),
                       FilledButton.icon(
                         icon: const Icon(Icons.download),
                         label: Text(t.analytics_generatePdf),
                         onPressed: () async {
                           final chosen = pickSpecific
-                              ? all.where((o) => selectedIds.contains(o.id)).toList()
-                              : (current == null ? <OperationRecord>[] : [current]);
+                              ? all
+                                    .where((o) => selectedIds.contains(o.id))
+                                    .toList()
+                              : (current == null
+                                    ? <OperationRecord>[]
+                                    : [current]);
                           if (chosen.isEmpty) return;
                           Navigator.pop(ctx);
                           await _generatePdf(context, chosen);
@@ -615,7 +511,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     );
   }
 
-  Future<void> _generatePdf(BuildContext context, List<OperationRecord> sessions) async {
+  Future<void> _generatePdf(
+    BuildContext context,
+    List<OperationRecord> sessions,
+  ) async {
     final t = AppLocalizations.of(context)!;
     final doc = pw.Document();
 
@@ -625,9 +524,21 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
           build: (pw.Context c) => pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text(t.analytics_reportTitle, style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                t.analytics_reportTitle,
+                style: pw.TextStyle(
+                  fontSize: 20,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
               pw.SizedBox(height: 6),
-              pw.Text(_titleFor(op), style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey600)),
+              pw.Text(
+                _titleFor(op),
+                style: const pw.TextStyle(
+                  fontSize: 12,
+                  color: PdfColors.grey600,
+                ),
+              ),
               pw.Divider(height: 24),
               _pdfEstimatedMoistureSection(op, t),
               pw.SizedBox(height: 20),
@@ -635,13 +546,22 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
               pw.SizedBox(height: 20),
               _pdfDryingSpeedSection(op, t),
               pw.SizedBox(height: 20),
-              pw.Text(t.analytics_environmentIfAvailable, style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+              pw.Text(
+                t.analytics_environmentIfAvailable,
+                style: pw.TextStyle(
+                  fontSize: 14,
+                  fontWeight: pw.FontWeight.bold,
+                ),
+              ),
               _pdfEnvStats(op, t),
               pw.Spacer(),
               pw.Divider(),
               pw.Text(
                 t.analytics_notesBody,
-                style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey500),
+                style: const pw.TextStyle(
+                  fontSize: 9,
+                  color: PdfColors.grey500,
+                ),
               ),
             ],
           ),
@@ -651,7 +571,8 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
     await Printing.sharePdf(
       bytes: await doc.save(),
-      filename: 'NiceRice-Report_${DateTime.now().toIso8601String().replaceAll(":", "-")}.pdf',
+      filename:
+          'NiceRice-Report_${DateTime.now().toIso8601String().replaceAll(":", "-")}.pdf',
     );
   }
 
@@ -659,14 +580,24 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     return pw.Column(
       crossAxisAlignment: pw.CrossAxisAlignment.start,
       children: [
-        pw.Text(title, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: PdfColors.green800)),
+        pw.Text(
+          title,
+          style: pw.TextStyle(
+            fontSize: 16,
+            fontWeight: pw.FontWeight.bold,
+            color: PdfColors.green800,
+          ),
+        ),
         pw.SizedBox(height: 12),
         child,
       ],
     );
   }
 
-  pw.Widget _pdfEstimatedMoistureSection(OperationRecord op, AppLocalizations t) {
+  pw.Widget _pdfEstimatedMoistureSection(
+    OperationRecord op,
+    AppLocalizations t,
+  ) {
     final targetMc = _extractTargetMc(op) ?? 14.0;
     double? initialMc = _extractInitialMc(op);
     Duration dur = op.duration ?? Duration.zero;
@@ -675,14 +606,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
       dur = op.readings.last.t.difference(op.readings.first.t);
     }
     if (dur == Duration.zero) {
-      final mins = (initialMc != null) ? ((initialMc - targetMc).clamp(0, 999.0) / _kRateMcPerMin) : 30.0;
+      final mins = (initialMc != null)
+          ? ((initialMc - targetMc).clamp(0, 999.0) / _kRateMcPerMin)
+          : 30.0;
       dur = Duration(minutes: mins.ceil());
     }
 
-    if (initialMc == null) {
-      final mins = max(1, dur.inMinutes);
-      initialMc = targetMc + mins * _kRateMcPerMin;
-    }
+    // FIX 4: null-coalesce initialMc before using in FlSpot/PointChartValue
+    initialMc ??= targetMc + max(1, dur.inMinutes) * _kRateMcPerMin;
 
     final spots = <pw.PointChartValue>[
       pw.PointChartValue(0, initialMc),
@@ -694,22 +625,25 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final xMax = spots.last.x;
 
     final start = op.startedAt;
-    String xLabel(double x) => DateFormat('HH:mm').format(start.add(Duration(seconds: x.round())));
+    String xLabel(double x) =>
+        DateFormat('HH:mm').format(start.add(Duration(seconds: x.round())));
 
     return _pdfSection(
-      "Estimated grain moisture", // Fallback, key is missing in user's ARB
+      t.analytics_estimatedGrainMoisture,
       child: pw.Container(
         height: 180,
         child: pw.Chart(
           grid: pw.CartesianGrid(
-            xAxis: pw.FixedAxis(
-              [0, xMax / 2, xMax],
-              format: (v) => xLabel(v.toDouble()),
-            ),
-            yAxis: pw.FixedAxis(
-              [yMin, (yMin + yMax) / 2, yMax],
-              format: (v) => '${v.toStringAsFixed(0)}%',
-            ),
+            xAxis: pw.FixedAxis([
+              0,
+              xMax / 2,
+              xMax,
+            ], format: (v) => xLabel(v.toDouble())),
+            yAxis: pw.FixedAxis([
+              yMin,
+              (yMin + yMax) / 2,
+              yMax,
+            ], format: (v) => '${v.toStringAsFixed(0)}%'),
           ),
           datasets: [
             pw.LineDataSet(
@@ -728,87 +662,147 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
 
   pw.Widget _pdfInterpretationSection(OperationRecord op, AppLocalizations t) {
     final targetMc = _extractTargetMc(op) ?? 14.0;
-    double initialMc = _extractInitialMc(op) ?? (targetMc + max(1, (op.duration ?? const Duration(minutes: 30)).inMinutes) * _kRateMcPerMin);
+    double initialMc =
+        _extractInitialMc(op) ??
+        (targetMc +
+            max(1, (op.duration ?? const Duration(minutes: 30)).inMinutes) *
+                _kRateMcPerMin);
 
-    final dur = op.duration ?? (op.readings.length >= 2 ? op.readings.last.t.difference(op.readings.first.t) : const Duration(minutes: 30));
+    final dur =
+        op.duration ??
+        (op.readings.length >= 2
+            ? op.readings.last.t.difference(op.readings.first.t)
+            : const Duration(minutes: 30));
     final loss = (initialMc - targetMc).clamp(0, 999).toDouble();
 
     pw.Widget bullet(String label, String value) {
-      return pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-        pw.SizedBox(width: 8, child: pw.Text('- ')),
-        pw.Expanded(
-          child: pw.RichText(
-            text: pw.TextSpan(children: [
-              pw.TextSpan(text: '$label: ', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
-              pw.TextSpan(text: value),
-            ]),
+      return pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.SizedBox(width: 8, child: pw.Text('- ')),
+          pw.Expanded(
+            child: pw.RichText(
+              text: pw.TextSpan(
+                children: [
+                  pw.TextSpan(
+                    text: '$label: ',
+                    style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.TextSpan(text: value),
+                ],
+              ),
+            ),
           ),
-        ),
-      ]);
+        ],
+      );
     }
 
-    return _pdfSection(t.analytics_interpretation,
-      child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-        pw.Row(children: [
-          pw.Expanded(
-            child: pw.Text(
-              // Fallback, key is missing in user's ARB
-              "The line shows how the grain’s moisture drops during drying. When it reaches the target level, the drying is complete.",
-              style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontStyle: pw.FontStyle.italic),
-            ),
-          )
-        ]),
-        pw.SizedBox(height: 10),
-        bullet(t.analytics_initialMoisture, '${initialMc.toStringAsFixed(1)}%'),
-        pw.SizedBox(height: 3),
-        bullet(t.analytics_targetMoisture, '${targetMc.toStringAsFixed(1)}%'),
-        pw.SizedBox(height: 3),
-        bullet(t.analytics_estimatedMoistureLoss, '${loss.toStringAsFixed(1)}%'),
-        pw.SizedBox(height: 10),
-        pw.Text("Summary", style: pw.TextStyle(fontWeight: pw.FontWeight.bold)), // Fallback
-        pw.SizedBox(height: 4),
-        // FIXED: Using a hyphen instead of pw.Bullet
-        pw.Text('- Moisture content decreased from ${initialMc.toStringAsFixed(1)}% to ${targetMc.toStringAsFixed(1)}% within ${fmtHMS(dur)}.'),
-        pw.SizedBox(height: 2),
-        // Fallback for missing key
-        pw.Text('- The moisture loss in this session is ${loss.toStringAsFixed(1)}%.'),
-      ]),
+    return _pdfSection(
+      t.analytics_interpretation,
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Row(
+            children: [
+              pw.Expanded(
+                child: pw.Text(
+                  t.analytics_moistureChartDescription,
+                  style: pw.TextStyle(
+                    fontWeight: pw.FontWeight.bold,
+                    fontStyle: pw.FontStyle.italic,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 10),
+          bullet(
+            t.analytics_initialMoisture,
+            '${initialMc.toStringAsFixed(1)}%',
+          ),
+          pw.SizedBox(height: 3),
+          bullet(t.analytics_targetMoisture, '${targetMc.toStringAsFixed(1)}%'),
+          pw.SizedBox(height: 3),
+          bullet(
+            t.analytics_estimatedMoistureLoss,
+            '${loss.toStringAsFixed(1)}%',
+          ),
+          pw.SizedBox(height: 10),
+          pw.Text(
+            t.analytics_summary,
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          ),
+          pw.SizedBox(height: 4),
+          pw.Text(
+            '- ${t.analytics_mcDropped(initialMc.toStringAsFixed(1), targetMc.toStringAsFixed(1), fmtHMS(dur))}',
+          ),
+          pw.SizedBox(height: 2),
+          pw.Text(
+            '- ${t.analytics_moistureLossSummary(loss.toStringAsFixed(1))}',
+          ),
+        ],
+      ),
     );
   }
-  
+
   pw.Widget _pdfDryingSpeedSection(OperationRecord op, AppLocalizations t) {
-     final dur = op.duration;
-     final durText = (dur == null) ? '—' : fmtHMS(dur);
-     
-     pw.TableRow row(String label, String value) {
-        return pw.TableRow(children: [
-          pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 2), child: pw.Text(label)),
+    final dur = op.duration;
+    final durText = (dur == null) ? '—' : fmtHMS(dur);
+
+    pw.TableRow row(String label, String value) {
+      return pw.TableRow(
+        children: [
           pw.Padding(
             padding: const pw.EdgeInsets.symmetric(vertical: 2),
-            child: pw.Text(value, style: pw.TextStyle(fontWeight: pw.FontWeight.bold))
+            child: pw.Text(label),
           ),
-        ]);
-     }
-     
-     return _pdfSection(t.analytics_sessionSummary, 
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Text(
+              value,
+              style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return _pdfSection(
+      t.analytics_sessionSummary,
       child: pw.Table(
-        columnWidths: const {0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(2)},
+        columnWidths: const {
+          0: pw.FlexColumnWidth(1),
+          1: pw.FlexColumnWidth(2),
+        },
         children: [
-          row(t.analytics_start, DateFormat('MMM d, HH:mm:ss').format(op.startedAt)),
-          row(t.analytics_end, op.endedAt == null ? '—' : DateFormat('MMM d, HH:mm:ss').format(op.endedAt!)),
+          row(
+            t.analytics_start,
+            DateFormat('MMM d, HH:mm:ss').format(op.startedAt),
+          ),
+          row(
+            t.analytics_end,
+            op.endedAt == null
+                ? '—'
+                : DateFormat('MMM d, HH:mm:ss').format(op.endedAt!),
+          ),
           row(t.analytics_duration, durText),
         ],
-      )
-     );
+      ),
+    );
   }
 
   pw.Widget _pdfEnvStats(OperationRecord op, AppLocalizations t) {
     double? tAvg, tMin, tMax, hAvg, hMin, hMax;
 
     try {
-      final temps = ((op as dynamic).temps ?? (op as dynamic).temperatureReadings) as List<dynamic>?;
+      final temps =
+          ((op as dynamic).temps ?? (op as dynamic).temperatureReadings)
+              as List<dynamic>?;
       if (temps != null && temps.isNotEmpty) {
-        final tv = temps.map((e) => (e as dynamic).value as num).map((e) => e.toDouble()).toList();
+        final tv = temps
+            .map((e) => (e as dynamic).value as num)
+            .map((e) => e.toDouble())
+            .toList();
         tAvg = tv.reduce((a, b) => a + b) / tv.length;
         tMin = tv.reduce(min);
         tMax = tv.reduce(max);
@@ -816,9 +810,14 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     } catch (_) {}
 
     try {
-      final rhs = ((op as dynamic).humidities ?? (op as dynamic).humidityReadings) as List<dynamic>?;
+      final rhs =
+          ((op as dynamic).humidities ?? (op as dynamic).humidityReadings)
+              as List<dynamic>?;
       if (rhs != null && rhs.isNotEmpty) {
-        final hv = rhs.map((e) => (e as dynamic).value as num).map((e) => e.toDouble()).toList();
+        final hv = rhs
+            .map((e) => (e as dynamic).value as num)
+            .map((e) => e.toDouble())
+            .toList();
         hAvg = hv.reduce((a, b) => a + b) / hv.length;
         hMin = hv.reduce(min);
         hMax = hv.reduce(max);
@@ -826,35 +825,52 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     } catch (_) {}
 
     pw.TableRow row(String label, String value) {
-        return pw.TableRow(children: [
-          pw.Padding(padding: const pw.EdgeInsets.symmetric(vertical: 2), child: pw.Text(label, style: const pw.TextStyle(fontSize: 10))),
+      return pw.TableRow(
+        children: [
           pw.Padding(
             padding: const pw.EdgeInsets.symmetric(vertical: 2),
-            child: pw.Text(value, style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))
+            child: pw.Text(label, style: const pw.TextStyle(fontSize: 10)),
           ),
-        ]);
-     }
+          pw.Padding(
+            padding: const pw.EdgeInsets.symmetric(vertical: 2),
+            child: pw.Text(
+              value,
+              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+            ),
+          ),
+        ],
+      );
+    }
 
     final rows = <pw.TableRow>[];
     if (tAvg != null) {
-      rows.add(row(
-        t.analytics_temperatureAvgRange,
-        '${tAvg!.toStringAsFixed(1)}°C • '
-        '${(tMin ?? tAvg)!.toStringAsFixed(1)}–${(tMax ?? tAvg)!.toStringAsFixed(1)}°C',
-      ));
+      rows.add(
+        row(
+          t.analytics_temperatureAvgRange,
+          '${tAvg.toStringAsFixed(1)}°C • '
+          '${(tMin ?? tAvg).toStringAsFixed(1)}–${(tMax ?? tAvg).toStringAsFixed(1)}°C',
+        ),
+      );
     }
     if (hAvg != null) {
-      rows.add(row(
-        t.analytics_humidityAvgRange,
-        '${hAvg!.toStringAsFixed(1)}% • '
-        '${(hMin ?? hAvg)!.toStringAsFixed(1)}–${(hMax ?? hAvg)!.toStringAsFixed(1)}%',
-      ));
+      rows.add(
+        row(
+          t.analytics_humidityAvgRange,
+          '${hAvg.toStringAsFixed(1)}% • '
+          '${(hMin ?? hAvg).toStringAsFixed(1)}–${(hMax ?? hAvg).toStringAsFixed(1)}%',
+        ),
+      );
     }
-    if (rows.isEmpty) return pw.Text(t.analytics_noEnvData, style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey));
+    if (rows.isEmpty) {
+      return pw.Text(
+        t.analytics_noEnvData,
+        style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey),
+      );
+    }
 
     return pw.Table(
-        columnWidths: const {0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(2)},
-        children: rows
+      columnWidths: const {0: pw.FlexColumnWidth(1), 1: pw.FlexColumnWidth(2)},
+      children: rows,
     );
   }
 
@@ -864,7 +880,10 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
     final t = AppLocalizations.of(context)!;
 
     return Scaffold(
-      appBar: PageHeader(isDarkMode: themeScope.isDark, onThemeChanged: themeScope.setDark),
+      appBar: PageHeader(
+        isDarkMode: themeScope.isDark,
+        onThemeChanged: themeScope.setDark,
+      ),
       floatingActionButton: (repo.operations.isEmpty || _isAtBottom)
           ? null
           : FloatingActionButton.extended(
@@ -887,8 +906,19 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
             final filtered = _applyFilter(ops);
             final selected = _currentSelected(filtered);
 
-            TextStyle txt({double? size, FontWeight? w, Color? c, double? h, TextDecoration? d}) =>
-                GoogleFonts.poppins(fontSize: size, fontWeight: w, color: c ?? cs.onSurface, height: h, decoration: d);
+            TextStyle txt({
+              double? size,
+              FontWeight? w,
+              Color? c,
+              double? h,
+              TextDecoration? d,
+            }) => GoogleFonts.poppins(
+              fontSize: size,
+              fontWeight: w,
+              color: c ?? cs.onSurface,
+              height: h,
+              decoration: d,
+            );
 
             return LayoutBuilder(
               builder: (context, constraints) {
@@ -910,7 +940,11 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                           _EmptyState(
                             height: emptyH.toDouble(),
                             message: t.analytics_emptyHistory,
-                            textStyle: txt(size: 14 * scale, w: FontWeight.w500, c: cs.onSurface.withOpacity(0.85)),
+                            textStyle: txt(
+                              size: 14 * scale,
+                              w: FontWeight.w500,
+                              c: cs.onSurface.withOpacity(0.85),
+                            ),
                           )
                         else ...[
                           // ── Picker + Filter + Rename ──
@@ -920,80 +954,144 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                 horizontal: (12 * scale).clamp(10, 16),
                                 vertical: (12 * scale).clamp(10, 16),
                               ),
-                              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                _FilterButtonsRow(
-                                  value: _filter,
-                                  onChanged: (f) async {
-                                    setState(() {
-                                      _filter = f;
-                                      _selectedOpId = null;
-                                    });
-                                    await _saveFilter(f);
-                                  },
-                                ),
-                                const SizedBox(height: 12),
-                                if (filtered.isEmpty)
-                                  _EmptyState(
-                                    message: t.analytics_noSessionsForFilter,
-                                    textStyle: txt(size: (14 * scale).clamp(12, 18), w: FontWeight.w500, c: cs.onSurface.withOpacity(0.8)),
-                                    height: (110 * scale).clamp(90, 140).toDouble(),
-                                  )
-                                else
-                                  Row(children: [
-                                    Icon(Icons.history, size: (20 * scale).clamp(18, 24), color: context.brand),
-                                    SizedBox(width: (10 * scale).clamp(8, 14).toDouble()),
-                                    Expanded(
-                                      child: DropdownButtonHideUnderline(
-                                        child: DropdownButton<String>(
-                                          value: (selected ?? filtered.first).id,
-                                          isExpanded: true,
-                                          iconEnabledColor: context.brand,
-                                          items: filtered
-                                              .map((op) => DropdownMenuItem(value: op.id, child: Text(_titleFor(op), overflow: TextOverflow.ellipsis, style: txt(size: (14 * scale).clamp(12, 18), w: FontWeight.w600))))
-                                              .toList(),
-                                          onChanged: (value) {
-                                            if (value != null) setState(() => _selectedOpId = value);
-                                          },
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  _FilterButtonsRow(
+                                    value: _filter,
+                                    onChanged: (f) async {
+                                      setState(() {
+                                        _filter = f;
+                                        _selectedOpId = null;
+                                      });
+                                      await _saveFilter(f);
+                                    },
+                                  ),
+                                  const SizedBox(height: 12),
+                                  if (filtered.isEmpty)
+                                    _EmptyState(
+                                      message: t.analytics_noSessionsForFilter,
+                                      textStyle: txt(
+                                        size: (14 * scale).clamp(12, 18),
+                                        w: FontWeight.w500,
+                                        c: cs.onSurface.withOpacity(0.8),
+                                      ),
+                                      height: (110 * scale)
+                                          .clamp(90, 140)
+                                          .toDouble(),
+                                    )
+                                  else
+                                    Row(
+                                      children: [
+                                        Icon(
+                                          Icons.history,
+                                          size: (20 * scale).clamp(18, 24),
+                                          color: context.brand,
                                         ),
-                                      ),
+                                        SizedBox(
+                                          width: (10 * scale)
+                                              .clamp(8, 14)
+                                              .toDouble(),
+                                        ),
+                                        Expanded(
+                                          child: DropdownButtonHideUnderline(
+                                            child: DropdownButton<String>(
+                                              value:
+                                                  (selected ?? filtered.first)
+                                                      .id,
+                                              isExpanded: true,
+                                              iconEnabledColor: context.brand,
+                                              items: filtered
+                                                  .map(
+                                                    (op) => DropdownMenuItem(
+                                                      value: op.id,
+                                                      child: Text(
+                                                        _titleFor(op),
+                                                        overflow: TextOverflow
+                                                            .ellipsis,
+                                                        style: txt(
+                                                          size: (14 * scale)
+                                                              .clamp(12, 18),
+                                                          w: FontWeight.w600,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  )
+                                                  .toList(),
+                                              onChanged: (value) {
+                                                if (value != null) {
+                                                  setState(
+                                                    () =>
+                                                        _selectedOpId = value,
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Tooltip(
+                                          message: t.tooltip_renameSession,
+                                          child: InkWell(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                            onTap: () =>
+                                                _promptRename(selected),
+                                            child: const Padding(
+                                              padding: EdgeInsets.all(6.0),
+                                              child: Icon(Icons.edit_outlined),
+                                            ),
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                    const SizedBox(width: 8),
-                                    Tooltip(
-                                      message: t.tooltip_renameSession,
-                                      child: InkWell(
-                                        borderRadius: BorderRadius.circular(10),
-                                        onTap: () => _promptRename(selected),
-                                        child: const Padding(padding: EdgeInsets.all(6.0), child: Icon(Icons.edit_outlined)),
-                                      ),
-                                    ),
-                                  ]),
-                              ]),
+                                ],
+                              ),
                             ),
                           ),
 
                           const SizedBox(height: 14),
 
                           _SectionCard(
-                            title: "Estimated grain moisture", // Fallback
-                            titleStyle: txt(size: (16 * scale).clamp(14, 20), w: FontWeight.w700, c: context.brand),
+                            title: t.analytics_estimatedGrainMoisture,
+                            titleStyle: txt(
+                              size: (16 * scale).clamp(14, 20),
+                              w: FontWeight.w700,
+                              c: context.brand,
+                            ),
                             child: _EstimatedMoistureChart(
                               op: selected,
-                              height: (isTablet ? 320.0 : 260.0) * (scale.clamp(0.9, 1.1)),
+                              height:
+                                  (isTablet ? 320.0 : 260.0) *
+                                  (scale.clamp(0.9, 1.1)),
                               empty: _EmptyState(
                                 height: emptyH * 0.7,
                                 message: t.analytics_notEnoughData,
-                                textStyle: txt(size: (14 * scale).clamp(12, 18), w: FontWeight.w500, c: cs.onSurface.withOpacity(0.85)),
+                                textStyle: txt(
+                                  size: (14 * scale).clamp(12, 18),
+                                  w: FontWeight.w500,
+                                  c: cs.onSurface.withOpacity(0.85),
+                                ),
                               ),
                             ),
                           ),
 
                           const SizedBox(height: 12),
 
-                          _EstimatedMcInterpretationCard(op: selected, titleSize: (16 * scale).clamp(14, 20), bulletGap: (4 * scale).clamp(3, 8)),
-                          
+                          _EstimatedMcInterpretationCard(
+                            op: selected,
+                            titleSize: (16 * scale).clamp(14, 20),
+                            bulletGap: (4 * scale).clamp(3, 8),
+                          ),
+
                           const SizedBox(height: 12),
 
-                          if (selected != null) _SessionSummaryCard(op: selected!, titleSize: (16 * scale).clamp(14, 20)),
+                          if (selected != null)
+                            _SessionSummaryCard(
+                              op: selected,
+                              titleSize: (16 * scale).clamp(14, 20),
+                            ),
 
                           const SizedBox(height: 12),
 
@@ -1008,7 +1106,9 @@ class _AnalyticsPageState extends State<AnalyticsPage> {
                                   onPressed: () {
                                     _openExportSheet(
                                       context: context,
-                                      current: _currentSelected(_applyFilter(repo.operations)),
+                                      current: _currentSelected(
+                                        _applyFilter(repo.operations),
+                                      ),
                                       all: repo.operations,
                                     );
                                   },
@@ -1037,13 +1137,24 @@ class _SectionCard extends StatelessWidget {
   final String title;
   final Widget child;
   final TextStyle titleStyle;
-  const _SectionCard({super.key, required this.title, required this.child, required this.titleStyle});
+  const _SectionCard({
+    required this.title,
+    required this.child,
+    required this.titleStyle,
+  });
   @override
   Widget build(BuildContext context) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: titleStyle), const SizedBox(height: 12), child]),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: titleStyle),
+            const SizedBox(height: 12),
+            child,
+          ],
+        ),
       ),
     );
   }
@@ -1053,17 +1164,26 @@ class _EmptyState extends StatelessWidget {
   final String message;
   final TextStyle textStyle;
   final double? height;
-  const _EmptyState({super.key, required this.message, required this.textStyle, this.height});
+  const _EmptyState({
+    required this.message,
+    required this.textStyle,
+    this.height,
+  });
   @override
   Widget build(BuildContext context) {
-    return SizedBox(height: height ?? 180, child: Center(child: Text(message, textAlign: TextAlign.center, style: textStyle)));
+    return SizedBox(
+      height: height ?? 180,
+      child: Center(
+        child: Text(message, textAlign: TextAlign.center, style: textStyle),
+      ),
+    );
   }
 }
 
 class _FilterButtonsRow extends StatelessWidget {
   final _FilterRange value;
   final ValueChanged<_FilterRange> onChanged;
-  const _FilterButtonsRow({super.key, required this.value, required this.onChanged});
+  const _FilterButtonsRow({required this.value, required this.onChanged});
 
   Widget _btn(BuildContext context, _FilterRange me) {
     final t = AppLocalizations.of(context)!;
@@ -1081,12 +1201,18 @@ class _FilterButtonsRow extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           shape: const StadiumBorder(),
           side: BorderSide(color: selected ? cs.primary : cs.outline),
-          backgroundColor: selected ? cs.primary.withOpacity(0.10) : Colors.transparent,
+          backgroundColor: selected
+              ? cs.primary.withOpacity(0.10)
+              : Colors.transparent,
           foregroundColor: selected ? cs.primary : cs.onSurface,
           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
         ),
         onPressed: () => onChanged(me),
-        child: Text(labels[me]!, textAlign: TextAlign.center, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700)),
+        child: Text(
+          labels[me]!,
+          textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }
@@ -1094,15 +1220,17 @@ class _FilterButtonsRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const gap = SizedBox(width: 6);
-    return Row(children: [
-      _btn(context, _FilterRange.today),
-      gap,
-      _btn(context, _FilterRange.yesterday),
-      gap,
-      _btn(context, _FilterRange.last3),
-      gap,
-      _btn(context, _FilterRange.last7),
-    ]);
+    return Row(
+      children: [
+        _btn(context, _FilterRange.today),
+        gap,
+        _btn(context, _FilterRange.yesterday),
+        gap,
+        _btn(context, _FilterRange.last3),
+        gap,
+        _btn(context, _FilterRange.last7),
+      ],
+    );
   }
 }
 
@@ -1112,9 +1240,20 @@ class _EnvChart extends StatelessWidget {
   final double? height;
   final double scale;
   final Widget? empty;
-  const _EnvChart({super.key, required this.temps, required this.rhs, this.height, this.scale = 1.0, this.empty});
+  const _EnvChart({
+    required this.temps,
+    required this.rhs,
+    this.height,
+    this.scale = 1.0,
+    this.empty,
+  });
 
-  factory _EnvChart.fromOperation({required OperationRecord? op, double? height, double scale = 1.0, Widget? empty}) {
+  factory _EnvChart.fromOperation({
+    required OperationRecord? op,
+    double? height,
+    double scale = 1.0,
+    Widget? empty,
+  }) {
     List<MoistureReading>? temps;
     List<MoistureReading>? rhs;
     try {
@@ -1135,7 +1274,13 @@ class _EnvChart extends StatelessWidget {
         rhs = null;
       }
     }
-    return _EnvChart(temps: temps, rhs: rhs, height: height, scale: scale, empty: empty);
+    return _EnvChart(
+      temps: temps,
+      rhs: rhs,
+      height: height,
+      scale: scale,
+      empty: empty,
+    );
   }
 
   @override
@@ -1144,11 +1289,23 @@ class _EnvChart extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
 
     if (temps == null || rhs == null || temps!.length < 2 || rhs!.length < 2) {
-      return empty ?? _EmptyState(message: t.analytics_noEnvDataForSession, textStyle: GoogleFonts.poppins(fontSize: 13, color: cs.onSurface.withOpacity(0.75), fontWeight: FontWeight.w500));
+      return empty ??
+          _EmptyState(
+            message: t.analytics_noEnvDataForSession,
+            textStyle: GoogleFonts.poppins(
+              fontSize: 13,
+              color: cs.onSurface.withOpacity(0.75),
+              fontWeight: FontWeight.w500,
+            ),
+          );
     }
 
-    final start = (temps!.first.t.isBefore(rhs!.first.t) ? temps!.first.t : rhs!.first.t);
-    List<FlSpot> toSpots(List<MoistureReading> list) => list.map((r) => FlSpot(r.t.difference(start).inSeconds.toDouble(), r.value)).toList();
+    final start = (temps!.first.t.isBefore(rhs!.first.t)
+        ? temps!.first.t
+        : rhs!.first.t);
+    List<FlSpot> toSpots(List<MoistureReading> list) => list
+        .map((r) => FlSpot(r.t.difference(start).inSeconds.toDouble(), r.value))
+        .toList();
 
     final tempSpots = toSpots(temps!);
     final rhSpots = toSpots(rhs!);
@@ -1160,20 +1317,25 @@ class _EnvChart extends StatelessWidget {
     final allRhVals = rhs!.map((e) => e.value);
 
     final xMin = 0.0;
-    final xMax = [tempSpots.isNotEmpty ? tempSpots.last.x : 0.0, rhSpots.isNotEmpty ? rhSpots.last.x : 0.0].reduce(max);
+    final xMax = [
+      tempSpots.isNotEmpty ? tempSpots.last.x : 0.0,
+      rhSpots.isNotEmpty ? rhSpots.last.x : 0.0,
+    ].reduce(max);
 
     final tMin = (minY(allTempVals).floorToDouble());
     final tMax = (maxY(allTempVals).ceilToDouble());
     final hMin = (minY(allRhVals).floorToDouble());
     final hMax = (maxY(allRhVals).ceilToDouble());
 
-    String xLabel(double x) => DateFormat('HH:mm').format(start.add(Duration(seconds: x.round())));
+    String xLabel(double x) =>
+        DateFormat('HH:mm').format(start.add(Duration(seconds: x.round())));
 
     final gridColor = cs.onSurface.withOpacity(0.10);
     final borderColor = cs.outline.withOpacity(0.55);
     final labelColor = cs.onSurface.withOpacity(0.70);
-    TextStyle tS(double sz, [FontWeight? w]) => GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: labelColor);
-    
+    TextStyle tS(double sz, [FontWeight? w]) =>
+        GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: labelColor);
+
     Widget bottomTitleWidgets(double value, TitleMeta meta) {
       return SideTitleWidget(
         axisSide: meta.axisSide,
@@ -1181,80 +1343,136 @@ class _EnvChart extends StatelessWidget {
         child: Text(xLabel(value), style: tS(11)),
       );
     }
-    
+
     Widget leftTitleWidgets(double value, TitleMeta meta) {
       return Text(value.toStringAsFixed(0), style: tS(11));
     }
-    
+
     Widget rightTitleWidgets(double value, TitleMeta meta) {
       return Text(value.toStringAsFixed(0), style: tS(11));
     }
 
     return SizedBox(
       height: height ?? 260,
-      child: Stack(children: [
-        LineChart(
-          LineChartData(
-            minX: xMin,
-            maxX: xMax,
-            minY: tMin,
-            maxY: tMax,
-            gridData: FlGridData(show: true, horizontalInterval: ((tMax - tMin) / 4).clamp(1, 100).toDouble(), drawVerticalLine: false, getDrawingHorizontalLine: (_) => FlLine(color: gridColor, strokeWidth: 1)),
-            titlesData: FlTitlesData(
-              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28, interval: (xMax - xMin) / 4.0, getTitlesWidget: bottomTitleWidgets)),
-              leftTitles: AxisTitles(
-                axisNameWidget: Padding(padding: const EdgeInsets.only(bottom: 4), child: Text('°C', style: tS(10))),
-                sideTitles: SideTitles(showTitles: true, reservedSize: 36, interval: ((tMax - tMin) / 5).clamp(1, 100).toDouble(), getTitlesWidget: leftTitleWidgets),
-              ),
-            ),
-            borderData: FlBorderData(show: true, border: Border.all(color: borderColor)),
-            lineBarsData: [
-              LineChartBarData(
-                spots: tempSpots,
-                isCurved: true,
-                barWidth: 3,
-                color: Theme.of(context).colorScheme.primary,
-                dotData: const FlDotData(show: false),
-                belowBarData: BarAreaData(show: true, color: Theme.of(context).colorScheme.primary.withOpacity(0.18)),
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.only(right: 40.0),
-          child: LineChart(
+      child: Stack(
+        children: [
+          LineChart(
             LineChartData(
               minX: xMin,
               maxX: xMax,
-              minY: hMin,
-              maxY: hMax,
-              gridData: const FlGridData(show: false),
+              minY: tMin,
+              maxY: tMax,
+              gridData: FlGridData(
+                show: true,
+                horizontalInterval: ((tMax - tMin) / 4)
+                    .clamp(1, 100)
+                    .toDouble(),
+                drawVerticalLine: false,
+                getDrawingHorizontalLine: (_) =>
+                    FlLine(color: gridColor, strokeWidth: 1),
+              ),
               titlesData: FlTitlesData(
-                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                bottomTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                rightTitles: AxisTitles(
-                  axisNameWidget: Padding(padding: const EdgeInsets.only(bottom: 4), child: Text('% RH', style: tS(10))),
-                  sideTitles: SideTitles(showTitles: true, reservedSize: 36, interval: ((hMax - hMin) / 5).clamp(1, 100).toDouble(), getTitlesWidget: rightTitleWidgets),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 28,
+                    interval: (xMax - xMin) / 4.0,
+                    getTitlesWidget: bottomTitleWidgets,
+                  ),
+                ),
+                leftTitles: AxisTitles(
+                  axisNameWidget: Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text('°C', style: tS(10)),
+                  ),
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 36,
+                    interval: ((tMax - tMin) / 5).clamp(1, 100).toDouble(),
+                    getTitlesWidget: leftTitleWidgets,
+                  ),
                 ),
               ),
-              borderData: FlBorderData(show: false),
+              borderData: FlBorderData(
+                show: true,
+                border: Border.all(color: borderColor),
+              ),
               lineBarsData: [
                 LineChartBarData(
-                  spots: rhSpots,
+                  spots: tempSpots,
                   isCurved: true,
                   barWidth: 3,
-                  color: Theme.of(context).colorScheme.secondary,
+                  color: Theme.of(context).colorScheme.primary,
                   dotData: const FlDotData(show: false),
-                  belowBarData: BarAreaData(show: true, color: Theme.of(context).colorScheme.secondary.withOpacity(0.14)),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withOpacity(0.18),
+                  ),
                 ),
               ],
             ),
           ),
-        ),
-      ]),
+          Padding(
+            padding: const EdgeInsets.only(right: 40.0),
+            child: LineChart(
+              LineChartData(
+                minX: xMin,
+                maxX: xMax,
+                minY: hMin,
+                maxY: hMax,
+                gridData: const FlGridData(show: false),
+                titlesData: FlTitlesData(
+                  topTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  leftTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  bottomTitles: const AxisTitles(
+                    sideTitles: SideTitles(showTitles: false),
+                  ),
+                  rightTitles: AxisTitles(
+                    axisNameWidget: Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text('% RH', style: tS(10)),
+                    ),
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 36,
+                      interval: ((hMax - hMin) / 5).clamp(1, 100).toDouble(),
+                      getTitlesWidget: rightTitleWidgets,
+                    ),
+                  ),
+                ),
+                borderData: FlBorderData(show: false),
+                lineBarsData: [
+                  LineChartBarData(
+                    spots: rhSpots,
+                    isCurved: true,
+                    barWidth: 3,
+                    color: Theme.of(context).colorScheme.secondary,
+                    dotData: const FlDotData(show: false),
+                    belowBarData: BarAreaData(
+                      show: true,
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.secondary.withOpacity(0.14),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1263,7 +1481,7 @@ class _EstimatedMoistureChart extends StatelessWidget {
   final OperationRecord? op;
   final double? height;
   final Widget? empty;
-  const _EstimatedMoistureChart({super.key, required this.op, this.height, this.empty});
+  const _EstimatedMoistureChart({required this.op, this.height, this.empty});
 
   @override
   Widget build(BuildContext context) {
@@ -1279,14 +1497,14 @@ class _EstimatedMoistureChart extends StatelessWidget {
       dur = op!.readings.last.t.difference(op!.readings.first.t);
     }
     if (dur == Duration.zero) {
-      final mins = (initialMc != null) ? ((initialMc - targetMc).clamp(0, 999.0) / _kRateMcPerMin) : 30.0;
+      final mins = (initialMc != null)
+          ? ((initialMc - targetMc).clamp(0, 999.0) / _kRateMcPerMin)
+          : 30.0;
       dur = Duration(minutes: mins.ceil());
     }
 
-    if (initialMc == null) {
-      final mins = max(1, dur.inMinutes);
-      initialMc = targetMc + mins * _kRateMcPerMin;
-    }
+    // FIX 4: null-coalesce before using in FlSpot (double? → double)
+    initialMc ??= targetMc + max(1, dur.inMinutes) * _kRateMcPerMin;
 
     final spots = <FlSpot>[
       FlSpot(0, initialMc),
@@ -1295,18 +1513,31 @@ class _EstimatedMoistureChart extends StatelessWidget {
 
     final cs = Theme.of(context).colorScheme;
     final start = op!.startedAt;
-    String xLabel(double x) => DateFormat('HH:mm').format(start.add(Duration(seconds: x.round())));
+    String xLabel(double x) =>
+        DateFormat('HH:mm').format(start.add(Duration(seconds: x.round())));
 
     Widget bottomTitleWidgets(double value, TitleMeta meta) {
       return SideTitleWidget(
         axisSide: meta.axisSide,
         space: 8.0,
-        child: Text(xLabel(value), style: GoogleFonts.poppins(fontSize: 11, color: cs.onSurface.withOpacity(0.7))),
+        child: Text(
+          xLabel(value),
+          style: GoogleFonts.poppins(
+            fontSize: 11,
+            color: cs.onSurface.withOpacity(0.7),
+          ),
+        ),
       );
     }
 
     Widget leftTitleWidgets(double value, TitleMeta meta) {
-      return Text('${value.toStringAsFixed(0)}%', style: GoogleFonts.poppins(fontSize: 11, color: cs.onSurface.withOpacity(0.7)));
+      return Text(
+        '${value.toStringAsFixed(0)}%',
+        style: GoogleFonts.poppins(
+          fontSize: 11,
+          color: cs.onSurface.withOpacity(0.7),
+        ),
+      );
     }
 
     return SizedBox(
@@ -1317,14 +1548,41 @@ class _EstimatedMoistureChart extends StatelessWidget {
           maxX: spots.last.x,
           minY: min(spots.first.y, spots.last.y).floorToDouble(),
           maxY: max(spots.first.y, spots.last.y).ceilToDouble(),
-          gridData: FlGridData(show: true, drawVerticalLine: true, getDrawingHorizontalLine: (_) => FlLine(color: cs.onSurface.withOpacity(0.08), strokeWidth: 1), getDrawingVerticalLine: (_) => FlLine(color: cs.onSurface.withOpacity(0.06), strokeWidth: 1)),
-          titlesData: FlTitlesData(
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28, interval: max(60, spots.last.x / 4), getTitlesWidget: bottomTitleWidgets)),
-            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 40, getTitlesWidget: leftTitleWidgets)),
+          gridData: FlGridData(
+            show: true,
+            drawVerticalLine: true,
+            getDrawingHorizontalLine: (_) =>
+                FlLine(color: cs.onSurface.withOpacity(0.08), strokeWidth: 1),
+            getDrawingVerticalLine: (_) =>
+                FlLine(color: cs.onSurface.withOpacity(0.06), strokeWidth: 1),
           ),
-          borderData: FlBorderData(show: true, border: Border.all(color: cs.outline.withOpacity(0.55))),
+          titlesData: FlTitlesData(
+            topTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            rightTitles: const AxisTitles(
+              sideTitles: SideTitles(showTitles: false),
+            ),
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 28,
+                interval: max(60, spots.last.x / 4),
+                getTitlesWidget: bottomTitleWidgets,
+              ),
+            ),
+            leftTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                reservedSize: 40,
+                getTitlesWidget: leftTitleWidgets,
+              ),
+            ),
+          ),
+          borderData: FlBorderData(
+            show: true,
+            border: Border.all(color: cs.outline.withOpacity(0.55)),
+          ),
           lineBarsData: [
             LineChartBarData(
               spots: spots,
@@ -1332,7 +1590,10 @@ class _EstimatedMoistureChart extends StatelessWidget {
               barWidth: 3,
               color: context.brand,
               dotData: const FlDotData(show: true),
-              belowBarData: BarAreaData(show: true, color: context.brand.withOpacity(0.14)),
+              belowBarData: BarAreaData(
+                show: true,
+                color: context.brand.withOpacity(0.14),
+              ),
             ),
           ],
         ),
@@ -1342,33 +1603,56 @@ class _EstimatedMoistureChart extends StatelessWidget {
 }
 
 // -----------------------------------------------------------------------------
-// NEW: Interpretation card for estimated MC
+// Interpretation card for estimated MC
 // -----------------------------------------------------------------------------
 class _EstimatedMcInterpretationCard extends StatelessWidget {
   final OperationRecord? op;
   final double titleSize;
   final double bulletGap;
-  const _EstimatedMcInterpretationCard({super.key, required this.op, required this.titleSize, this.bulletGap = 4});
+  const _EstimatedMcInterpretationCard({
+    required this.op,
+    required this.titleSize,
+    this.bulletGap = 4,
+  });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final t = AppLocalizations.of(context)!;
-    TextStyle ts(double sz, {FontWeight? w, Color? c}) => GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+    TextStyle ts(double sz, {FontWeight? w, Color? c}) => GoogleFonts.poppins(
+      fontSize: sz,
+      fontWeight: w,
+      color: c ?? cs.onSurface,
+    );
 
     if (op == null) {
       return _SectionCard(
         title: t.analytics_interpretation,
         titleStyle: ts(titleSize, w: FontWeight.w700),
-        child: _EmptyState(message: t.analytics_notEnoughData, textStyle: ts(14, w: FontWeight.w500, c: cs.onSurface.withOpacity(0.85))),
+        child: _EmptyState(
+          message: t.analytics_notEnoughData,
+          textStyle: ts(
+            14,
+            w: FontWeight.w500,
+            c: cs.onSurface.withOpacity(0.85),
+          ),
+        ),
       );
     }
 
     final state = context.findAncestorStateOfType<_AnalyticsPageState>();
     final targetMc = state?._extractTargetMc(op!) ?? 14.0;
-    final initialMc = state?._extractInitialMc(op!) ?? (targetMc + max(1, (op!.duration ?? const Duration(minutes: 30)).inMinutes) * _kRateMcPerMin);
+    final initialMc =
+        state?._extractInitialMc(op!) ??
+        (targetMc +
+            max(1, (op!.duration ?? const Duration(minutes: 30)).inMinutes) *
+                _kRateMcPerMin);
 
-    final dur = op!.duration ?? (op!.readings.length >= 2 ? op!.readings.last.t.difference(op!.readings.first.t) : const Duration(minutes: 30));
+    final dur =
+        op!.duration ??
+        (op!.readings.length >= 2
+            ? op!.readings.last.t.difference(op!.readings.first.t)
+            : const Duration(minutes: 30));
 
     final predictedFinal = targetMc;
     final loss = (initialMc - predictedFinal).clamp(0, 999).toDouble();
@@ -1376,31 +1660,76 @@ class _EstimatedMcInterpretationCard extends StatelessWidget {
     List<Widget> bullet(String label, String value) => [
       Padding(
         padding: EdgeInsets.only(bottom: bulletGap),
-        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('- ', style: ts(13, w: FontWeight.w800)),
-          Expanded(child: RichText(text: TextSpan(style: ts(13, w: FontWeight.w500), children: [TextSpan(text: '$label: ', style: ts(13, w: FontWeight.w800)), TextSpan(text: value)]))),
-        ]),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('- ', style: ts(13, w: FontWeight.w800)),
+            Expanded(
+              child: RichText(
+                text: TextSpan(
+                  style: ts(13, w: FontWeight.w500),
+                  children: [
+                    TextSpan(
+                      text: '$label: ',
+                      style: ts(13, w: FontWeight.w800),
+                    ),
+                    TextSpan(text: value),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     ];
 
     return _SectionCard(
       title: t.analytics_interpretation,
       titleStyle: ts(titleSize, w: FontWeight.w700),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [Icon(Icons.agriculture_rounded, color: context.brand), const SizedBox(width: 8), Expanded(child: Text(
-          "The line shows how the grain’s moisture drops during drying. When it reaches the target level, the drying is complete.", // Fallback
-          style: ts(14, w: FontWeight.w700),
-        ))]),
-        const SizedBox(height: 8),
-        ...bullet(t.analytics_initialMoisture, '${initialMc.toStringAsFixed(1)}%'),
-        ...bullet(t.analytics_targetMoisture, '${targetMc.toStringAsFixed(1)}%'),
-        ...bullet(t.analytics_estimatedMoistureLoss, '${loss.toStringAsFixed(1)}%'),
-        const SizedBox(height: 6),
-        Text("Summary", style: ts(13, w: FontWeight.w800, c: context.brand)), // Fallback
-        const SizedBox(height: 4),
-        Text('• ${t.analytics_mcDropped(initialMc.toStringAsFixed(1), predictedFinal.toStringAsFixed(1), fmtHMS(dur))}', style: ts(13, w: FontWeight.w600)),
-        Text('• The moisture loss in this session is ${loss.toStringAsFixed(1)}%.', style: ts(13, w: FontWeight.w600)), // Fallback
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.agriculture_rounded, color: context.brand),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  t.analytics_moistureChartDescription,
+                  style: ts(14, w: FontWeight.w700),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ...bullet(
+            t.analytics_initialMoisture,
+            '${initialMc.toStringAsFixed(1)}%',
+          ),
+          ...bullet(
+            t.analytics_targetMoisture,
+            '${targetMc.toStringAsFixed(1)}%',
+          ),
+          ...bullet(
+            t.analytics_estimatedMoistureLoss,
+            '${loss.toStringAsFixed(1)}%',
+          ),
+          const SizedBox(height: 6),
+          Text(
+            t.analytics_summary,
+            style: ts(13, w: FontWeight.w800, c: context.brand),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '• ${t.analytics_mcDropped(initialMc.toStringAsFixed(1), predictedFinal.toStringAsFixed(1), fmtHMS(dur))}',
+            style: ts(13, w: FontWeight.w600),
+          ),
+          Text(
+            '• ${t.analytics_moistureLossSummary(loss.toStringAsFixed(1))}',
+            style: ts(13, w: FontWeight.w600),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1408,7 +1737,7 @@ class _EstimatedMcInterpretationCard extends StatelessWidget {
 class _SessionSummaryCard extends StatelessWidget {
   final OperationRecord op;
   final double titleSize;
-  const _SessionSummaryCard({super.key, required this.op, required this.titleSize});
+  const _SessionSummaryCard({required this.op, required this.titleSize});
 
   String _fmtTime(DateTime dt) => DateFormat('MMM d, HH:mm:ss').format(dt);
 
@@ -1416,7 +1745,11 @@ class _SessionSummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final t = AppLocalizations.of(context)!;
-    TextStyle ts(double sz, {FontWeight? w, Color? c}) => GoogleFonts.poppins(fontSize: sz, fontWeight: w, color: c ?? cs.onSurface);
+    TextStyle ts(double sz, {FontWeight? w, Color? c}) => GoogleFonts.poppins(
+      fontSize: sz,
+      fontWeight: w,
+      color: c ?? cs.onSurface,
+    );
 
     final dur = op.duration;
     final durText = (dur == null) ? '—' : fmtHMS(dur);
@@ -1424,21 +1757,38 @@ class _SessionSummaryCard extends StatelessWidget {
     return _SectionCard(
       title: t.analytics_sessionSummary,
       titleStyle: ts(titleSize, w: FontWeight.w700, c: context.brand),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _rowUi(t.analytics_start, _fmtTime(op.startedAt), ts(13)),
-        _rowUi(t.analytics_end, op.endedAt == null ? '—' : _fmtTime(op.endedAt!), ts(13)),
-        _rowUi(t.analytics_duration, durText, ts(13)),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _rowUi(t.analytics_start, _fmtTime(op.startedAt), ts(13)),
+          _rowUi(
+            t.analytics_end,
+            op.endedAt == null ? '—' : _fmtTime(op.endedAt!),
+            ts(13),
+          ),
+          _rowUi(t.analytics_duration, durText, ts(13)),
+        ],
+      ),
     );
   }
 
   Widget _rowUi(String label, String value, TextStyle vStyle) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(children: [
-        Expanded(child: Text(label, style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w500))),
-        Text(value, style: vStyle),
-      ]),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Text(value, style: vStyle),
+        ],
+      ),
     );
   }
 }

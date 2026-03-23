@@ -17,7 +17,8 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin {
+class _HomePageState extends State<HomePage>
+    with AutomaticKeepAliveClientMixin {
   @override
   bool get wantKeepAlive => true;
 
@@ -34,7 +35,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   String _storageStatus = "";
 
-  static const MethodChannel _bleChannel = MethodChannel('app.bluetooth/controls');
+  static const MethodChannel _bleChannel = MethodChannel(
+    'app.bluetooth/controls',
+  );
 
   bool _isConnecting = false;
 
@@ -79,8 +82,18 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
   String _formatDate(DateTime dt) {
     const months = [
-      'January','February','March','April','May','June',
-      'July','August','September','October','November','December',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     return "${months[dt.month - 1]} ${dt.day}, ${dt.year}";
   }
@@ -98,19 +111,21 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
     FontWeight? weight,
     Color? color,
     double? height,
-  }) =>
-      GoogleFonts.poppins(
-        fontSize: size,
-        fontWeight: weight,
-        color: color ?? Theme.of(context).colorScheme.onSurface,
-        height: height,
-      );
+  }) => GoogleFonts.poppins(
+    fontSize: size,
+    fontWeight: weight,
+    color: color ?? Theme.of(context).colorScheme.onSurface,
+    height: height,
+  );
 
-  double _scaleForWidth(double width) => (width / 375).clamp(0.85, 1.25).toDouble();
+  double _scaleForWidth(double width) =>
+      (width / 375).clamp(0.85, 1.25).toDouble();
 
   Future<void> _sendCommand(String command) async {
     try {
-      final response = await _bleChannel.invokeMethod<String>('sendData', {'data': command});
+      final response = await _bleChannel.invokeMethod<String>('sendData', {
+        'data': command,
+      });
       if (response != null) {
         _parseBleResponse(response);
       }
@@ -166,12 +181,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
             if (key == 'T') t = val;
           }
         }
-       if (h != null && t != null) {
-        setState(() {
-          _humidity = h!; 
-          _tempC = t!;    
-        });
-      }
+        if (h != null && t != null) {
+          setState(() {
+            _humidity = h!;
+            _tempC = t!;
+          });
+        }
         continue;
       }
 
@@ -196,14 +211,19 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
 
     setState(() => _isConnecting = true);
     try {
-      final ok = await _bleChannel.invokeMethod<bool>('ensureBluetoothOn') ?? false;
+      final ok =
+          await _bleChannel.invokeMethod<bool>('ensureBluetoothOn') ?? false;
       if (!ok) {
         _toast(t.bluetoothStillOff);
         return;
       }
 
-      final bonded = await _bleChannel.invokeMethod<List<dynamic>>('listBondedDevices') ?? [];
-      final discovered = await _bleChannel.invokeMethod<List<dynamic>>('discoverDevices') ?? [];
+      final bonded =
+          await _bleChannel.invokeMethod<List<dynamic>>('listBondedDevices') ??
+          [];
+      final discovered =
+          await _bleChannel.invokeMethod<List<dynamic>>('discoverDevices') ??
+          [];
 
       final devices = _mergeDevices(bonded, discovered);
       if (devices.isEmpty) {
@@ -257,7 +277,10 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
             mainAxisSize: MainAxisSize.min,
             children: [
               const SizedBox(height: 8),
-              Text(t.selectDevice, style: _textStyle(context, size: 18, weight: FontWeight.w700)),
+              Text(
+                t.selectDevice,
+                style: _textStyle(context, size: 18, weight: FontWeight.w700),
+              ),
               const SizedBox(height: 4),
               Flexible(
                 child: ListView.separated(
@@ -266,21 +289,40 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, i) {
                     final d = devices[i];
-                    final name = (d["name"] ?? "").isEmpty ? t.unnamedDevice : d["name"]!;
+                    final name = (d["name"] ?? "").isEmpty
+                        ? t.unnamedDevice
+                        : d["name"]!;
                     final addr = d["address"] ?? "";
                     return ListTile(
                       leading: const Icon(Icons.bluetooth),
-                      title: Text(name, style: _textStyle(context, size: 16, weight: FontWeight.w600)),
-                      subtitle: Text(addr, style: _textStyle(context, size: 12, weight: FontWeight.w400, color: Colors.grey[600])),
+                      title: Text(
+                        name,
+                        style: _textStyle(
+                          context,
+                          size: 16,
+                          weight: FontWeight.w600,
+                        ),
+                      ),
+                      subtitle: Text(
+                        addr,
+                        style: _textStyle(
+                          context,
+                          size: 12,
+                          weight: FontWeight.w400,
+                          color: Colors.grey[600],
+                        ),
+                      ),
                       onTap: () async {
                         Navigator.pop(context);
                         try {
                           setState(() => _isConnecting = true);
-                          final ok = await _bleChannel.invokeMethod<bool>('connect', {
-                            'address': addr,
-                            'type': 'spp',
-                            'timeoutMs': 15000,
-                          }) ?? false;
+                          final ok =
+                              await _bleChannel.invokeMethod<bool>('connect', {
+                                'address': addr,
+                                'type': 'spp',
+                                'timeoutMs': 15000,
+                              }) ??
+                              false;
 
                           if (ok) {
                             if (!mounted) return;
@@ -293,7 +335,11 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                             AutomationPage.btConnected.value = true;
                             AutomationPage.btDeviceName.value = name;
                           }
-                          _toast(ok ? t.connectedTo(name, addr) : t.failedToConnect(name));
+                          _toast(
+                            ok
+                                ? t.connectedTo(name, addr)
+                                : t.failedToConnect(name),
+                          );
                         } on PlatformException catch (e) {
                           _toast(t.connectError(e.message ?? e.code));
                         } finally {
@@ -344,7 +390,9 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
         return Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
             child: Column(
@@ -352,13 +400,23 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
               children: [
                 Text(
                   t.disconnectTitle,
-                  style: _textStyle(ctx, size: 20, weight: FontWeight.w800, color: cs.onSurface),
+                  style: _textStyle(
+                    ctx,
+                    size: 20,
+                    weight: FontWeight.w800,
+                    color: cs.onSurface,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Text(
                   t.disconnectBody,
                   textAlign: TextAlign.center,
-                  style: _textStyle(ctx, size: 14, weight: FontWeight.w400, color: cs.onSurface.withOpacity(0.9)),
+                  style: _textStyle(
+                    ctx,
+                    size: 14,
+                    weight: FontWeight.w400,
+                    color: cs.onSurface.withOpacity(0.9),
+                  ),
                 ),
                 const SizedBox(height: 18),
                 Align(
@@ -369,8 +427,13 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                       TextButton(
                         style: TextButton.styleFrom(
                           foregroundColor: cs.onSurface,
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
                         ),
                         onPressed: () => Navigator.pop(ctx, false),
                         child: Text(t.cancel),
@@ -378,8 +441,13 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                       const SizedBox(width: 12),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 12,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(999),
+                          ),
                         ),
                         onPressed: () => Navigator.pop(ctx, true),
                         child: Text(t.confirm),
@@ -435,8 +503,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                           padding: const EdgeInsets.all(16),
                           child: LayoutBuilder(
                             builder: (ctx, box) {
-                              final double imgW = (box.maxWidth * 0.28).clamp(92.0, 160.0).toDouble();
-                              final double imgH = (imgW * 1.25).clamp(110.0, 200.0).toDouble();
+                              final double imgW = (box.maxWidth * 0.28)
+                                  .clamp(92.0, 160.0)
+                                  .toDouble();
+                              final double imgH = (imgW * 1.25)
+                                  .clamp(110.0, 200.0)
+                                  .toDouble();
 
                               return Row(
                                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -446,7 +518,10 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                     height: imgH,
                                     child: ClipRRect(
                                       borderRadius: BorderRadius.circular(16),
-                                      child: Image.asset("assets/images/pon.png", fit: BoxFit.cover),
+                                      child: Image.asset(
+                                        "assets/images/pon.png",
+                                        fit: BoxFit.cover,
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(width: 16),
@@ -457,10 +532,12 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                         alignment: Alignment.centerRight,
                                         child: ConstrainedBox(
                                           constraints: BoxConstraints(
-                                            maxWidth: (box.maxWidth * 0.6).clamp(220, 480),
+                                            maxWidth: (box.maxWidth * 0.6)
+                                                .clamp(220, 480),
                                           ),
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
                                               Text(
                                                 _formatDate(now),
@@ -468,7 +545,13 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                                 overflow: TextOverflow.ellipsis,
                                                 style: _textStyle(
                                                   context,
-                                                  size: (18 * _scaleForWidth(box.maxWidth)).clamp(14, 22).toDouble(),
+                                                  size:
+                                                      (18 *
+                                                              _scaleForWidth(
+                                                                box.maxWidth,
+                                                              ))
+                                                          .clamp(14, 22)
+                                                          .toDouble(),
                                                   weight: FontWeight.w700,
                                                   color: context.brand,
                                                 ),
@@ -480,7 +563,13 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                                 overflow: TextOverflow.ellipsis,
                                                 style: _textStyle(
                                                   context,
-                                                  size: (14 * _scaleForWidth(box.maxWidth)).clamp(12, 18).toDouble(),
+                                                  size:
+                                                      (14 *
+                                                              _scaleForWidth(
+                                                                box.maxWidth,
+                                                              ))
+                                                          .clamp(12, 18)
+                                                          .toDouble(),
                                                   weight: FontWeight.w400,
                                                 ),
                                               ),
@@ -489,36 +578,79 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                               Align(
                                                 alignment: Alignment.centerLeft,
                                                 child: ConstrainedBox(
-                                                  constraints: const BoxConstraints(minWidth: 140),
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        minWidth: 140,
+                                                      ),
                                                   child: _isConnected
                                                       ? OutlinedButton(
                                                           style: OutlinedButton.styleFrom(
-                                                            side: BorderSide(color: paleRedBorder, width: 1.6),
-                                                            backgroundColor: Colors.white,
-                                                            foregroundColor: paleRedText,
+                                                            side: BorderSide(
+                                                              color:
+                                                                  paleRedBorder,
+                                                              width: 1.6,
+                                                            ),
+                                                            backgroundColor:
+                                                                Colors.white,
+                                                            foregroundColor:
+                                                                paleRedText,
                                                             shape: RoundedRectangleBorder(
-                                                              borderRadius: BorderRadius.circular(100),
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                    100,
+                                                                  ),
                                                             ),
                                                             padding: EdgeInsets.symmetric(
                                                               horizontal: 20,
-                                                              vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
+                                                              vertical:
+                                                                  (12 *
+                                                                          _scaleForWidth(
+                                                                            box.maxWidth,
+                                                                          ))
+                                                                      .clamp(
+                                                                        8,
+                                                                        16,
+                                                                      )
+                                                                      .toDouble(),
                                                             ),
                                                           ),
-                                                          onPressed: _onDisconnectPressed,
+                                                          onPressed:
+                                                              _onDisconnectPressed,
                                                           child: FittedBox(
-                                                            fit: BoxFit.scaleDown,
+                                                            fit: BoxFit
+                                                                .scaleDown,
                                                             child: Row(
-                                                              mainAxisSize: MainAxisSize.min,
+                                                              mainAxisSize:
+                                                                  MainAxisSize
+                                                                      .min,
                                                               children: [
-                                                                const Icon(Icons.link_off, size: 18),
-                                                                const SizedBox(width: 8),
+                                                                const Icon(
+                                                                  Icons
+                                                                      .link_off,
+                                                                  size: 18,
+                                                                ),
+                                                                const SizedBox(
+                                                                  width: 8,
+                                                                ),
                                                                 Text(
                                                                   t.disconnect,
                                                                   style: _textStyle(
                                                                     context,
-                                                                    size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
-                                                                    weight: FontWeight.w700,
-                                                                    color: paleRedText,
+                                                                    size:
+                                                                        (16 *
+                                                                                _scaleForWidth(
+                                                                                  box.maxWidth,
+                                                                                ))
+                                                                            .clamp(
+                                                                              13,
+                                                                              20,
+                                                                            )
+                                                                            .toDouble(),
+                                                                    weight:
+                                                                        FontWeight
+                                                                            .w700,
+                                                                    color:
+                                                                        paleRedText,
                                                                   ),
                                                                 ),
                                                               ],
@@ -527,36 +659,86 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                                         )
                                                       : ElevatedButton(
                                                           style: ElevatedButton.styleFrom(
-                                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                                                            shape: RoundedRectangleBorder(
+                                                              borderRadius:
+                                                                  BorderRadius.circular(
+                                                                    100,
+                                                                  ),
+                                                            ),
                                                             padding: EdgeInsets.symmetric(
                                                               horizontal: 20,
-                                                              vertical: (12 * _scaleForWidth(box.maxWidth)).clamp(8, 16).toDouble(),
+                                                              vertical:
+                                                                  (12 *
+                                                                          _scaleForWidth(
+                                                                            box.maxWidth,
+                                                                          ))
+                                                                      .clamp(
+                                                                        8,
+                                                                        16,
+                                                                      )
+                                                                      .toDouble(),
                                                             ),
                                                           ),
-                                                          onPressed: _isConnecting ? null : _onConnectPressed,
+                                                          onPressed:
+                                                              _isConnecting
+                                                              ? null
+                                                              : _onConnectPressed,
                                                           child: FittedBox(
-                                                            fit: BoxFit.scaleDown,
+                                                            fit: BoxFit
+                                                                .scaleDown,
                                                             child: Row(
-                                                              mainAxisSize: MainAxisSize.min,
+                                                              mainAxisSize:
+                                                                  MainAxisSize
+                                                                      .min,
                                                               children: [
                                                                 if (_isConnecting)
                                                                   const Padding(
-                                                                    padding: EdgeInsets.only(right: 8.0),
+                                                                    padding:
+                                                                        EdgeInsets.only(
+                                                                          right:
+                                                                              8.0,
+                                                                        ),
                                                                     child: SizedBox(
                                                                       width: 16,
-                                                                      height: 16,
-                                                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                                                      height:
+                                                                          16,
+                                                                      child: CircularProgressIndicator(
+                                                                        strokeWidth:
+                                                                            2,
+                                                                        color: Colors
+                                                                            .white,
+                                                                      ),
                                                                     ),
                                                                   ),
-                                                                const Icon(Icons.bluetooth, size: 18, color: Colors.white),
-                                                                const SizedBox(width: 8),
+                                                                const Icon(
+                                                                  Icons
+                                                                      .bluetooth,
+                                                                  size: 18,
+                                                                  color: Colors
+                                                                      .white,
+                                                                ),
+                                                                const SizedBox(
+                                                                  width: 8,
+                                                                ),
                                                                 Text(
                                                                   t.connect,
                                                                   style: _textStyle(
                                                                     context,
-                                                                    size: (16 * _scaleForWidth(box.maxWidth)).clamp(13, 20).toDouble(),
-                                                                    weight: FontWeight.w700,
-                                                                    color: Colors.white,
+                                                                    size:
+                                                                        (16 *
+                                                                                _scaleForWidth(
+                                                                                  box.maxWidth,
+                                                                                ))
+                                                                            .clamp(
+                                                                              13,
+                                                                              20,
+                                                                            )
+                                                                            .toDouble(),
+                                                                    weight:
+                                                                        FontWeight
+                                                                            .w700,
+                                                                    color: Colors
+                                                                        .white,
                                                                   ),
                                                                 ),
                                                               ],
@@ -566,13 +748,22 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                                 ),
                                               ),
 
-                                              if (_isConnected && (_connectedName?.isNotEmpty ?? false)) ...[
+                                              if (_isConnected &&
+                                                  (_connectedName?.isNotEmpty ??
+                                                      false)) ...[
                                                 const SizedBox(height: 6),
                                                 Text(
-                                                  t.connectedLabel(_connectedName ?? ''),
+                                                  t.connectedLabel(
+                                                    _connectedName ?? '',
+                                                  ),
                                                   maxLines: 1,
-                                                  overflow: TextOverflow.ellipsis,
-                                                  style: _textStyle(context, size: 12, color: Colors.grey[700]),
+                                                  overflow:
+                                                      TextOverflow.ellipsis,
+                                                  style: _textStyle(
+                                                    context,
+                                                    size: 12,
+                                                    color: Colors.grey[700],
+                                                  ),
                                                 ),
                                               ],
                                             ],
@@ -598,40 +789,64 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                               valueListenable: AutomationPage.progress,
                               builder: (_, prog, __) {
                                 final pct = (prog * 100).clamp(0, 100);
-                                final scale = _scaleForWidth(constraints.maxWidth);
+                                final scale = _scaleForWidth(
+                                  constraints.maxWidth,
+                                );
                                 return Card(
                                   child: Padding(
-                                    padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                                    padding: const EdgeInsets.fromLTRB(
+                                      16,
+                                      14,
+                                      16,
+                                      16,
+                                    ),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
-                                          crossAxisAlignment: CrossAxisAlignment.center,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.center,
                                           children: [
                                             Text(
                                               t.dryingChamber,
-                                              style: _textStyle(context,
-                                                  size: (15 * scale).clamp(13, 18).toDouble(),
-                                                  weight: FontWeight.w700,
-                                                  color: context.brand),
+                                              style: _textStyle(
+                                                context,
+                                                size: (15 * scale)
+                                                    .clamp(13, 18)
+                                                    .toDouble(),
+                                                weight: FontWeight.w700,
+                                                color: context.brand,
+                                              ),
                                             ),
                                             const Spacer(),
                                             Text(
                                               "${pct.toStringAsFixed(0)}%",
-                                              style: _textStyle(context,
-                                                  size: (14 * scale).clamp(12, 18).toDouble(),
-                                                  weight: FontWeight.w800,
-                                                  color: Theme.of(context).colorScheme.onSurface),
+                                              style: _textStyle(
+                                                context,
+                                                size: (14 * scale)
+                                                    .clamp(12, 18)
+                                                    .toDouble(),
+                                                weight: FontWeight.w800,
+                                                color: Theme.of(
+                                                  context,
+                                                ).colorScheme.onSurface,
+                                              ),
                                             ),
                                           ],
                                         ),
                                         const SizedBox(height: 10),
                                         ClipRRect(
-                                          borderRadius: BorderRadius.circular(20),
+                                          borderRadius: BorderRadius.circular(
+                                            20,
+                                          ),
                                           child: LinearProgressIndicator(
                                             value: prog,
-                                            minHeight: (10 * scale).clamp(8, 14).toDouble(),
-                                            backgroundColor: context.progressTrack,
+                                            minHeight: (10 * scale)
+                                                .clamp(8, 14)
+                                                .toDouble(),
+                                            backgroundColor:
+                                                context.progressTrack,
                                           ),
                                         ),
                                       ],
@@ -656,45 +871,55 @@ class _HomePageState extends State<HomePage> with AutomaticKeepAliveClientMixin 
                                 t.storageChamber,
                                 style: _textStyle(
                                   context,
-                                  size: (16 * _scaleForWidth(constraints.maxWidth)).clamp(14, 20).toDouble(),
+                                  size:
+                                      (16 *
+                                              _scaleForWidth(
+                                                constraints.maxWidth,
+                                              ))
+                                          .clamp(14, 20)
+                                          .toDouble(),
                                   weight: FontWeight.w700,
                                   color: context.brand,
                                 ),
                               ),
                               const SizedBox(height: 12),
-                              LayoutBuilder(builder: (ctx, box) {
-                                final isWide = box.maxWidth >= 520;
-                                return GridView.count(
-                                  crossAxisCount: isWide ? 4 : 2,
-                                  childAspectRatio: 1.05,
-                                  mainAxisSpacing: 12,
-                                  crossAxisSpacing: 12,
-                                  shrinkWrap: true,
-                                  physics: const NeverScrollableScrollPhysics(),
-                                  children: [
-                                    _MiniMetricTile(
-                                      icon: Icons.thermostat_outlined,
-                                      label: t.temperatureShort,
-                                      value: "${_tempC.toStringAsFixed(0)}ºC",
-                                    ),
-                                    _MiniMetricTile(
-                                      icon: Icons.water_drop_outlined,
-                                      label: t.humidity,
-                                      value: "${_humidity.toStringAsFixed(0)}%",
-                                    ),
-                                    _MiniStatusTile(
-                                      icon: Icons.air_outlined,
-                                      statusText: "OFF",
-                                      statusLabel: "Fan",
-                                    ),
-                                    _MiniStatusTile(
-                                      icon: Icons.inventory_2_outlined,
-                                      statusText: _storageStatus,
-                                      statusLabel: t.status,
-                                    ),
-                                  ],
-                                );
-                              }),
+                              LayoutBuilder(
+                                builder: (ctx, box) {
+                                  final isWide = box.maxWidth >= 520;
+                                  return GridView.count(
+                                    crossAxisCount: isWide ? 4 : 2,
+                                    childAspectRatio: 1.05,
+                                    mainAxisSpacing: 12,
+                                    crossAxisSpacing: 12,
+                                    shrinkWrap: true,
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
+                                    children: [
+                                      _MiniMetricTile(
+                                        icon: Icons.thermostat_outlined,
+                                        label: t.temperatureShort,
+                                        value: "${_tempC.toStringAsFixed(0)}ºC",
+                                      ),
+                                      _MiniMetricTile(
+                                        icon: Icons.water_drop_outlined,
+                                        label: t.humidity,
+                                        value:
+                                            "${_humidity.toStringAsFixed(0)}%",
+                                      ),
+                                      _MiniStatusTile(
+                                        icon: Icons.air_outlined,
+                                        statusText: "OFF",
+                                        statusLabel: "Fan",
+                                      ),
+                                      _MiniStatusTile(
+                                        icon: Icons.inventory_2_outlined,
+                                        statusText: _storageStatus,
+                                        statusLabel: t.status,
+                                      ),
+                                    ],
+                                  );
+                                },
+                              ),
                             ],
                           ),
                         ),
@@ -717,13 +942,11 @@ class _MiniMetricTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
-  final double scale;
 
   const _MiniMetricTile({
     required this.icon,
     required this.label,
     required this.value,
-    this.scale = 1,
   });
 
   @override
@@ -733,7 +956,7 @@ class _MiniMetricTile extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, c) {
         final shortest = c.biggest.shortestSide;
-        final double iconSize  = (shortest * 0.18).clamp(16, 28).toDouble();
+        final double iconSize = (shortest * 0.18).clamp(16, 28).toDouble();
         final double valueSize = (shortest * 0.32).clamp(22, 52).toDouble();
         final double labelSize = (shortest * 0.14).clamp(11, 20).toDouble();
 
@@ -747,11 +970,7 @@ class _MiniMetricTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(
-                icon,
-                color: context.brand,
-                size: iconSize,
-              ),
+              Icon(icon, color: context.brand, size: iconSize),
               const Spacer(),
               FittedBox(
                 fit: BoxFit.scaleDown,
@@ -787,17 +1006,16 @@ class _MiniMetricTile extends StatelessWidget {
     );
   }
 }
+
 class _MiniStatusTile extends StatelessWidget {
   final IconData icon;
   final String statusText;
   final String statusLabel;
-  final double scale;
 
   const _MiniStatusTile({
     required this.icon,
     required this.statusText,
     required this.statusLabel,
-    this.scale = 1,
   });
 
   @override
@@ -807,7 +1025,7 @@ class _MiniStatusTile extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, c) {
         final shortest = c.biggest.shortestSide;
-        final double iconSize  = (shortest * 0.18).clamp(16, 28).toDouble();
+        final double iconSize = (shortest * 0.18).clamp(16, 28).toDouble();
         final double valueSize = (shortest * 0.32).clamp(22, 52).toDouble();
         final double labelSize = (shortest * 0.14).clamp(11, 20).toDouble();
 
